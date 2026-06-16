@@ -1,0 +1,199 @@
+.maze-tanks-app {
+  min-height: 100vh;
+  color: #23262b;
+  background: linear-gradient(180deg, #d8c8aa 0%, #bca98e 100%);
+}
+
+.maze-tanks-app :where(*) {
+  box-sizing: border-box;
+}
+
+.maze-tanks-app .page {
+  max-width: 1460px;
+  margin: 0 auto;
+  padding: 20px;
+  background: transparent;
+}
+
+.maze-tanks-app .topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 245, 220, 0.28);
+  border: 1px solid rgba(97, 84, 58, 0.24);
+  box-shadow: 0 10px 26px rgba(79, 58, 27, 0.16);
+}
+
+.maze-tanks-app h1 {
+  margin: 0 0 6px;
+  font-size: 34px;
+  color: #203552;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.maze-tanks-app .subtitle {
+  margin: 0;
+  color: #5d513f;
+}
+
+.maze-tanks-app .status {
+  margin-top: 10px;
+  min-height: 42px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 244, 214, 0.35);
+  border: 1px solid rgba(82, 106, 139, 0.26);
+  color: #1e2b3a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.maze-tanks-app .buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.maze-tanks-app button {
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  border-radius: 14px;
+  padding: 12px 18px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #1b2530;
+  background: #eadbb9;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(66, 49, 22, 0.16);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+
+.maze-tanks-app button:hover {
+  transform: translateY(-1px);
+  filter: saturate(1.06);
+  box-shadow: 0 12px 22px rgba(66, 49, 22, 0.22);
+}
+
+.maze-tanks-app button:active {
+  transform: translateY(0);
+  box-shadow: 0 5px 10px rgba(66, 49, 22, 0.2);
+}
+
+.maze-tanks-app #restartBtn {
+  background: #f2cf7b;
+  border-color: rgba(130, 95, 31, 0.35);
+}
+
+.maze-tanks-app #roundBtn {
+  background: #b9d8f5;
+  border-color: rgba(43, 88, 144, 0.34);
+}
+
+.maze-tanks-app .layout {
+  display: grid;
+  grid-template-columns: minmax(720px, 1fr) 340px;
+  gap: 16px;
+}
+
+.maze-tanks-app .game-wrap,
+.maze-tanks-app .panel {
+  background: rgba(232, 222, 199, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 22px;
+  box-shadow: 0 18px 34px rgba(57, 43, 20, 0.18);
+}
+
+.maze-tanks-app .game-wrap {
+  padding: 14px;
+}
+
+.maze-tanks-app canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 16px;
+  background: #ddd4be;
+}
+
+.maze-tanks-app .panel {
+  padding: 18px;
+}
+
+.maze-tanks-app .panel h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+  color: #304a6a;
+}
+
+.maze-tanks-app .panel section + section {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.maze-tanks-app .panel ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #6f6257;
+}
+
+.maze-tanks-app .panel li + li {
+  margin-top: 8px;
+}
+
+.maze-tanks-app .card {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.34);
+  color: #6f6257;
+  border-left: 4px solid transparent;
+}
+
+.maze-tanks-app .card strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #23262b;
+}
+
+.maze-tanks-app .p1 {
+  border-left-color: #61dd90;
+  background: rgba(129, 227, 166, 0.22);
+}
+
+.maze-tanks-app .p2 {
+  border-left-color: #d4524d;
+  background: rgba(242, 137, 132, 0.22);
+}
+
+.maze-tanks-app .p3 {
+  border-left-color: #315fbe;
+  background: rgba(131, 168, 245, 0.22);
+}
+
+@media (max-width: 1160px) {
+  .maze-tanks-app .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .maze-tanks-app .page {
+    padding: 12px;
+  }
+
+  .maze-tanks-app .topbar {
+    flex-direction: column;
+  }
+
+  .maze-tanks-app .buttons {
+    justify-content: flex-start;
+  }
+
+  .maze-tanks-app h1 {
+    font-size: 28px;
+  }
+}
