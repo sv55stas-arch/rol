@@ -1,0 +1,263 @@
+ if (dist < 34) {
+            roam.index = (roam.index + 1) % roam.points.length;
+            point = roam.points[roam.index];
+            dist = hypot2(point.x - bullet.x, point.y - bullet.y);
+            roam.stuck = 0;
+            bullet.navPath = null;
+            bullet.navIndex = 1;
+          }
+
+          if (dist >= roam.lastDist - 0.8) {
+            roam.stuck += dt;
+          } else {
+            roam.stuck = Math.max(0, roam.stuck - dt * 0.6);
+          }
+          roam.lastDist = dist;
+
+          if (roam.stuck > 1.6) {
+            roam.index = (roam.index + 3) % roam.points.length;
+            point = roam.points[roam.index];
+            roam.stuck = 0;
+            bullet.navPath = null;
+            bullet.navIndex = 1;
+          }
+
+          bullet.navTimer -= dt;
+          if (!bullet.navPath || bullet.navTimer <= 0) {
+            bullet.navPath = buildRocketRoute(bullet.x, bullet.y, point.x, point.y);
+            bullet.navIndex = 1;
+            bullet.navTimer = bullet.navInterval || 0.18;
+          }
+
+          var aimX = point.x;
+          var aimY = point.y;
+          if (bullet.navPath && bullet.navPath.length > 1) {
+            if (bullet.navIndex >= bullet.navPath.length) bullet.navIndex = bullet.navPath.length - 1;
+            var wpCell = bullet.navPath[bullet.navIndex];
+            var wp = cellCenter(wpCell);
+            while (bullet.navIndex < bullet.navPath.length - 1 && hypot2(wp.x - bullet.x, wp.y - bullet.y) < 12) {
+              bullet.navIndex += 1;
+              wpCell = bullet.navPath[bullet.navIndex];
+              wp = cellCenter(wpCell);
+            }
+            aimX = wp.x;
+            aimY = wp.y;
+          }
+
+          bullet.wanderTimer = (bullet.wanderTimer || 0) - dt;
+          if (bullet.wanderTimer <= 0) {
+            bullet.wanderTimer = 0.18 + Math.random() * 0.2;
+            bullet.wanderAngle = (Math.random() - 0.5) * 0.5;
+          }
+
+          var desiredAngle = Math.atan2(aimY - bullet.y, aimX - bullet.x) + (bullet.wanderAngle || 0);
+          var probeX = bullet.x + Math.cos(desiredAngle) * (bullet.radius + 20);
+          var probeY = bullet.y + Math.sin(desiredAngle) * (bullet.radius + 20);
+          if (circleHitsWall(probeX, probeY, bullet.radius * 0.7)) {
+            var leftA = desiredAngle - 0.75;
+            var rightA = desiredAngle + 0.75;
+            var leftBlocked = circleHitsWall(bullet.x + Math.cos(leftA) * (bullet.radius + 18), bullet.y + Math.sin(leftA) * (bullet.radius + 18), bullet.radius * 0.65);
+            var rightBlocked = circleHitsWall(bullet.x + Math.cos(rightA) * (bullet.radius + 18), bullet.y + Math.sin(rightA) * (bullet.radius + 18), bullet.radius * 0.65);
+            if (leftBlocked && !rightBlocked) desiredAngle = rightA;
+            else if (!leftBlocked && rightBlocked) desiredAngle = leftA;
+            else desiredAngle += (Math.random() < 0.5 ? -1 : 1) * 0.75;
+          }
+
+          var currentAngle = Math.atan2(bullet.vy, bullet.vx);
+          var turnRate = bullet.turnRate || 4.8;
+          var nextAngle = currentAngle + clamp(normAngle(desiredAngle - currentAngle), -turnRate * dt, turnRate * dt);
+          bullet.vx = Math.cos(nextAngle) * speed;
+          bullet.vy = Math.sin(nextAngle) * speed;
+        }
+
+        function spawnBullet(ownerTank, cfg) {
+          state.bullets.push({
+            id: nextBulletId++,
+            owner: ownerTank.id,
+            kind: cfg.kind || 'normal',
+            x: cfg.x,
+            y: cfg.y,
+            vx: cfg.vx,
+            vy: cfg.vy,
+            radius: cfg.radius,
+            color: cfg.color,
+            strokeColor: '#000000',
+            accentColor: cfg.accentColor || cfg.color,
+            flameColor: cfg.flameColor || cfg.color,
+            safe: cfg.safe,
+            bounces: 0,
+            maxBounces: typeof cfg.maxBounces === 'number' ? cfg.maxBounces : 120,
+            noBounce: !!cfg.noBounce,
+            life: cfg.life,
+            homingDelay: cfg.homingDelay || 0,
+            turnRate: cfg.turnRate || 0,
+            speed: cfg.speed || 0,
+            fuse: typeof cfg.fuse === 'number' ? cfg.fuse : 0,
+            stuck: !!cfg.stuck,
+            hitLock: cfg.hitLock || 0,
+            wanderTimer: cfg.wanderTimer || 0,
+            navTargetId: 0,
+            navPath: null,
+            navIndex: 1,
+            navTimer: 0,
+            navInterval: cfg.navInterval || 0.22,
+            rocketMode: '',
+            avoidSide: 0,
+            axisPref: cfg.axisPref || 'x',
+            lastTornadoDirKey: '',
+            wanderAngle: cfg.wanderAngle || 0,
+            stuckTimer: 0,
+            lastTargetDist: 0,
+            portalCooldown: 0,
+            trail: [],
+            dead: false
+          });
+        }
+
+        function getWeaponName(type) {
+          if (type === 'shotgun') return 'Дробовик';
+          if (type === 'rocket') return 'Ракета';
+          if (type === 'drill') return 'Бур';
+          if (type === 'mega') return 'Мега пуля';
+          if (type === 'tornado') return 'Торнадо';
+          if (type === 'laser') return 'Лазер';
+          if (type === 'mine') return 'Мина';
+          return 'Обычный';
+        }
+
+        function drawPickupIcon(type, size) {
+          var s = size;
+          if (type === 'mine') {
+            ctx.beginPath();
+            ctx.arc(0, 0, s * 0.3, 0, Math.PI * 2);
+            ctx.fillStyle = '#3a3a3a';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(0, 0, s * 0.12, 0, Math.PI * 2);
+            ctx.fillStyle = '#ff5555';
+            ctx.fill();
+            for (var mi = 0; mi < 4; mi++) {
+              var ma = (Math.PI * 2 * mi) / 4 + 0.4;
+              ctx.beginPath();
+              ctx.moveTo(Math.cos(ma) * s * 0.3, Math.sin(ma) * s * 0.3);
+              ctx.lineTo(Math.cos(ma) * s * 0.48, Math.sin(ma) * s * 0.48);
+              ctx.strokeStyle = '#eee';
+              ctx.lineWidth = 2;
+              ctx.stroke();
+            }
+            return;
+          }
+          if (type === 'tornado') {
+            ctx.strokeStyle = '#9ed8f0';
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            ctx.arc(0, -s * 0.12, s * 0.12, 0.3, Math.PI * 1.7);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(0, s * 0.04, s * 0.2, 0.3, Math.PI * 1.7);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(0, s * 0.2, s * 0.28, 0.3, Math.PI * 1.7);
+            ctx.stroke();
+            return;
+          }
+          if (type === 'shotgun') {
+            var angles = [-0.34, -0.17, 0, 0.17, 0.34];
+            for (var si = 0; si < angles.length; si++) {
+              var bx = Math.cos(angles[si]) * s * 0.34;
+              var by = Math.sin(angles[si]) * s * 0.34;
+              ctx.beginPath();
+              ctx.arc(bx, by, s * 0.07, 0, Math.PI * 2);
+              ctx.fillStyle = '#eee';
+              ctx.fill();
+            }
+            return;
+          }
+          if (type === 'mega') {
+            ctx.beginPath();
+            ctx.arc(0, 0, s * 0.22, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffd84a';
+            ctx.fill();
+            ctx.strokeStyle = '#aa8822';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            return;
+          }
+          if (type === 'rocket') {
+            ctx.save();
+            roundRect(-s * 0.22, -s * 0.08, s * 0.44, s * 0.16, s * 0.05);
+            ctx.fillStyle = '#c8d6e0';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(s * 0.26, 0);
+            ctx.lineTo(s * 0.16, -s * 0.13);
+            ctx.lineTo(s * 0.16, s * 0.13);
+            ctx.closePath();
+            ctx.fillStyle = '#ff9944';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(-s * 0.22, -s * 0.05);
+            ctx.lineTo(-s * 0.32, -s * 0.12);
+            ctx.lineTo(-s * 0.22, -s * 0.02);
+            ctx.closePath();
+            ctx.fillStyle = '#8899aa';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(-s * 0.22, s * 0.05);
+            ctx.lineTo(-s * 0.32, s * 0.12);
+            ctx.lineTo(-s * 0.22, s * 0.02);
+            ctx.closePath();
+            ctx.fillStyle = '#8899aa';
+            ctx.fill();
+            ctx.restore();
+            return;
+          }
+          if (type === 'laser') {
+            ctx.strokeStyle = '#77ddff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(-s * 0.4, 0);
+            ctx.lineTo(s * 0.05, -s * 0.25);
+            ctx.lineTo(s * 0.35, s * 0.12);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(s * 0.35, s * 0.12, s * 0.06, 0, Math.PI * 2);
+            ctx.fillStyle = '#aaeeff';
+            ctx.fill();
+            return;
+          }
+          if (type === 'drill') {
+            ctx.save();
+            ctx.rotate(0.5);
+            roundRect(-s * 0.12, -s * 0.24, s * 0.24, s * 0.48, s * 0.06);
+            ctx.fillStyle = '#b0b0b0';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(0, -s * 0.28);
+            ctx.lineTo(-s * 0.08, -s * 0.2);
+            ctx.lineTo(s * 0.08, -s * 0.2);
+            ctx.closePath();
+            ctx.fillStyle = '#ddd';
+            ctx.fill();
+            ctx.restore();
+            return;
+          }
+          ctx.beginPath();
+          ctx.arc(0, 0, s * 0.16, 0, Math.PI * 2);
+          ctx.fillStyle = '#e0e4ea';
+          ctx.fill();
+        }
+
+        function applyPickup(tank, pickupType) {
+          tank.weapon = pickupType;
+          tank.weaponAmmo = 0;
+          tank.weaponTimer = 5;
+          tank.megaBulletId = 0;
+          tank.rocketAiming = false;
+          tank.drillActive = false;
+          tank.drillTimer = 0;
+          if (pickupType === 'shotgun') tank.weaponAmmo = 3;
+          if (pickupType === 'rocket') tank.weaponAmmo = 1;
+          if (pickupType === 'drill') tank.weaponAmmo = 1;
+          if (pickupType === 'mega') tank.weaponAmmo = 1;
+          if (pickupType === 'tornado') tank.weaponAmmo =

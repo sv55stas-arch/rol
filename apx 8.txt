@@ -1,0 +1,240 @@
+
+              kind: 'laser-bolt',
+              x: bx,
+              y: by,
+              vx: Math.cos(tank.angle) * laserSpeed,
+              vy: Math.sin(tank.angle) * laserSpeed,
+              radius: SR(3),
+              color: '#111111',
+              strokeColor: '#333333',
+              safe: 0.06,
+              maxBounces: 7,
+              noBounce: false,
+              life: 2.4,
+              speed: laserSpeed
+            });
+            playLaserFireSound();
+            tank.weaponAmmo -= 1;
+            if (tank.weaponAmmo <= 0) tank.weaponTimer = 5;
+            tank.cooldown = 0.5;
+          } else if (effectiveWeapon === 'mine') {
+            spawnBullet(tank, {
+              kind: 'mine',
+              x: tank.x - Math.cos(tank.angle) * SR(14),
+              y: tank.y - Math.sin(tank.angle) * SR(14),
+              vx: 0,
+              vy: 0,
+              radius: SR(10),
+              color: mixHex(palette.primary, '#2f2a2a', 0.45),
+              strokeColor: palette.stroke,
+              safe: 0.2,
+              noBounce: true,
+              life: 16,
+              maxBounces: 0
+            });
+            playMinePlaceSound();
+            tank.weaponAmmo -= 1;
+            if (tank.weaponAmmo <= 0) tank.weaponTimer = 5;
+            tank.cooldown = 0.45;
+          } else {
+            spawnBullet(tank, {
+              kind: 'normal',
+              x: bx,
+              y: by,
+              vx: Math.cos(tank.angle) * SR(170),
+              vy: Math.sin(tank.angle) * SR(170),
+              radius: SR(3),
+              color: palette.secondary,
+              strokeColor: palette.stroke,
+              safe: 0.16,
+              life: 14
+            });
+            playShootSound();
+            tank.cooldown = 0.52;
+          }
+
+          if (tank.weapon !== 'normal' && tank.weaponAmmo <= 0) tank.weaponAmmo = 0;
+          return true;
+        }
+
+        function startRound() {
+          var preset = arenaPresets[rand(0, arenaPresets.length - 1)];
+          COLS = preset.cols;
+          ROWS = preset.rows;
+          CELL = preset.cell;
+          WORLD_W = COLS * CELL;
+          WORLD_H = ROWS * CELL;
+          WORLD_SCALE = CELL / 96;
+          OFFSET_X = Math.round((VIEW_W - WORLD_W) / 2);
+          state.arenaLabel = preset.label + ' ' + COLS + 'x' + ROWS;
+          state.cells = makeGrid();
+          carveMaze(state.cells);
+          state.walls = buildWalls(state.cells);
+          state.groundDecals = [];
+          for (var gd = 0; gd < 220; gd++) {
+            state.groundDecals.push({
+              kind: 'asphalt',
+              x: Math.random() * WORLD_W,
+              y: Math.random() * WORLD_H,
+              r: 5 + Math.random() * 16,
+              a: 0.03 + Math.random() * 0.09
+            });
+          }
+          for (var gs = 0; gs < 56; gs++) {
+            state.groundDecals.push({
+              kind: 'stone',
+              x: 18 + Math.random() * (WORLD_W - 36),
+              y: 18 + Math.random() * (WORLD_H - 36),
+              w: 8 + Math.random() * 24,
+              h: 6 + Math.random() * 14,
+              rot: (Math.random() - 0.5) * 1.1,
+              a: 0.1 + Math.random() * 0.18
+            });
+          }
+          var spawnCells = chooseSpawnCells(players.length);
+          var spawns = spawnCells.map(cellCenter);
+          state.obstacles = buildObstacles(spawnCells);
+          rebuildSolids();
+          state.tanks = players.map(function (p, i) { return makeTank(p, spawns[i]); });
+          state.bullets = [];
+          state.explosions = [];
+          state.rocketStrikes = [];
+          state.laserBeams = [];
+          state.tankTracks = [];
+          state.tankSmoke = [];
+          state.pickups = [];
+          state.pickupTimer = rand(2, 5);
+          spawnPortals();
+          state.eventTimer = rand(18, 42);
+          state.eventName = '';
+          state.eventTimeLeft = 0;
+          state.eventPortalShiftTimer = 0;
+          state.chatterTimer = rand(16, 32);
+          state.countdown = 0;
+          state.flash = 0;
+          state.time = 0;
+          state.message = 'Раунд ' + state.round + ' - ' + state.arenaLabel;
+        }
+
+        function startMatch() {
+          keysDown = Object.create(null);
+          lastTime = 0;
+          state.scores = { 1: 0, 2: 0, 3: 0 };
+          state.round = 1;
+          state.lastWinner = 0;
+          startRound();
+          setStatus('Игра запущена. Лабиринт и танки готовы к бою.');
+        }
+
+        function endRound(alive) {
+          state.countdown = 2.1;
+          if (alive.length === 1) {
+            var winner = alive[0];
+            state.scores[winner.id] += 1;
+            state.lastWinner = winner.id;
+            state.message = winner.name + ' победил';
+            playWinSound();
+            speakText(winner.name + ' победил в раунде');
+          } else {
+            state.lastWinner = 0;
+            state.message = 'Ничья';
+            speakText('Ничья в раунде');
+          }
+        }
+
+        function updateTank(tank, dt) {
+          if (!tank.alive) return;
+          var k = tank.keys;
+          var prevX = tank.x;
+          var prevY = tank.y;
+
+          if (tank.tornadoCarry && tank.tornadoCarry.timeLeft > 0) {
+            tank.tornadoCarry.timeLeft -= dt;
+            var source = null;
+            for (var tb = 0; tb < state.bullets.length; tb++) {
+              if (!state.bullets[tb].dead && state.bullets[tb].id === tank.tornadoCarry.bulletId) {
+                source = state.bullets[tb];
+                break;
+              }
+            }
+            if (source) {
+              tank.tornadoCarry.spin += dt * 9;
+              tank.x = source.x + Math.cos(tank.tornadoCarry.spin) * 26;
+              tank.y = source.y + Math.sin(tank.tornadoCarry.spin) * 26;
+              tank.angle += dt * 9;
+            }
+            if (!source || tank.tornadoCarry.timeLeft <= 0) {
+              var lastX = source ? source.x : tank.x;
+              var lastY = source ? source.y : tank.y;
+              var eject = findSafeSpotNear(lastX, lastY, 90, tank.radius);
+              tank.x = eject.x;
+              tank.y = eject.y;
+              tank.tornadoCarry = null;
+              playPortalSound();
+            }
+            return;
+          }
+
+          if (tank.drillActive) {
+            tank.drillTimer -= dt;
+            if (tank.drillTimer <= 0) {
+              tank.drillActive = false;
+              tank.drillTimer = 0;
+            }
+          }
+
+          if (tank.weapon === 'rocket' && tank.rocketAiming) {
+            var aimSpeed = 260;
+            var aimDX = (keysDown[k.r] ? 1 : 0) - (keysDown[k.l] ? 1 : 0);
+            var aimDY = (keysDown[k.b] ? 1 : 0) - (keysDown[k.f] ? 1 : 0);
+            tank.rocketAimX = clamp(tank.rocketAimX + aimDX * aimSpeed * dt, 14, WORLD_W - 14);
+            tank.rocketAimY = clamp(tank.rocketAimY + aimDY * aimSpeed * dt, 14, WORLD_H - 14);
+            tank.angle = Math.atan2(tank.rocketAimY - tank.y, tank.rocketAimX - tank.x);
+          } else {
+            if (keysDown[k.l]) tank.angle -= tank.turn * dt;
+            if (keysDown[k.r]) tank.angle += tank.turn * dt;
+
+            if (tank.drillActive) {
+              var drillFrontX = tank.x + Math.cos(tank.angle) * (tank.radius + SR(11));
+              var drillFrontY = tank.y + Math.sin(tank.angle) * (tank.radius + SR(11));
+              breakWallsNear(drillFrontX, drillFrontY, SR(13), 9.5);
+              var drillMove = (tank.speed * 0.72) * dt;
+              moveBodyWithCollisions(tank, Math.cos(tank.angle) * drillMove, Math.sin(tank.angle) * drillMove, tank.radius);
+              resolveDrillContact(tank);
+            } else {
+              var intent = (keysDown[k.f] ? 1 : 0) + (keysDown[k.b] ? -0.68 : 0);
+              if (intent !== 0) {
+                var speedMul = state.time < tank.slowUntil ? 0.55 : 1;
+                if (state.eventName === 'speedRush' && state.eventTimeLeft > 0) speedMul *= 1.25;
+                if (state.eventName === 'flood' && state.eventTimeLeft > 0) speedMul *= 0.68;
+                var move = tank.speed * speedMul * intent * dt;
+                moveBodyWithCollisions(tank, Math.cos(tank.angle) * move, Math.sin(tank.angle) * move, tank.radius);
+              }
+              if (state.eventName === 'gravity' && state.eventTimeLeft > 0) {
+                var driftX = Math.sin(state.time * 2.3 + tank.id * 1.7) * SR(26) * dt;
+                var driftY = Math.cos(state.time * 2.1 + tank.id * 1.3) * SR(26) * dt;
+                moveBodyWithCollisions(tank, driftX, driftY, tank.radius);
+              }
+              if (state.eventName === 'vortex' && state.eventTimeLeft > 0) {
+                var toCx = WORLD_W / 2 - tank.x;
+                var toCy = WORLD_H / 2 - tank.y;
+                var len = Math.max(SR(10), hypot2(toCx, toCy));
+                moveBodyWithCollisions(tank, (toCx / len) * SR(36) * dt, (toCy / len) * SR(36) * dt, tank.radius);
+              }
+              if (state.eventName === 'slip' && state.eventTimeLeft > 0) {
+                moveBodyWithCollisions(tank, Math.cos(tank.angle) * SR(22) * dt, Math.sin(tank.angle) * SR(22) * dt, tank.radius);
+              }
+            }
+          }
+
+          var movedDist = hypot2(tank.x - prevX, tank.y - prevY);
+          if (movedDist > SR(0.9)) {
+            playMoveSound();
+            var backX = tank.x - Math.cos(tank.angle) * tank.radius * 0.78;
+            var backY = tank.y - Math.sin(tank.angle) * tank.radius * 0.78;
+            var sideX = Math.cos(tank.angle + Math.PI / 2) * tank.radius * 0.54;
+            var sideY = Math.sin(tank.angle + Math.PI / 2) * tank.radius * 0.54;
+            state.tankTracks.push({ x: backX + sideX, y: backY + sideY, a: tank.angle, size: tank.radius * 0.68, life: 0.45, color: 'rgba(42,46,54,0.2)' });
+            state.tankTracks.push({ x: backX - sideX, y: backY - sideY, a: tank.angle, size: tank.radius * 0.68, life: 0.45, color: 'rgba(42,46,54,0.2)' });
+            if (Math.random() < 0.7) {
+              var smo

@@ -1,0 +1,271 @@
+id) {
+          for (var i = 0; i < state.tanks.length; i++) {
+            if (state.tanks[i].id === id) return state.tanks[i];
+          }
+          return null;
+        }
+
+        function mixHex(colorA, colorB, t) {
+          var a = String(colorA || '').replace('#', '');
+          var b = String(colorB || '').replace('#', '');
+          if (a.length !== 6 || b.length !== 6) return colorA;
+          var ar = parseInt(a.slice(0, 2), 16);
+          var ag = parseInt(a.slice(2, 4), 16);
+          var ab = parseInt(a.slice(4, 6), 16);
+          var br = parseInt(b.slice(0, 2), 16);
+          var bg = parseInt(b.slice(2, 4), 16);
+          var bb = parseInt(b.slice(4, 6), 16);
+          var r = Math.round(ar + (br - ar) * t);
+          var g = Math.round(ag + (bg - ag) * t);
+          var bl = Math.round(ab + (bb - ab) * t);
+          var hex = function (n) {
+            var s = Math.max(0, Math.min(255, n)).toString(16);
+            return s.length === 1 ? '0' + s : s;
+          };
+          return '#' + hex(r) + hex(g) + hex(bl);
+        }
+
+        function getWeaponPalette(ownerId) {
+          var tank = getTankById(ownerId);
+          var primary = tank ? tank.color : '#9aa0aa';
+          var secondary = tank ? tank.shell : '#c7d0de';
+          return {
+            primary: primary,
+            secondary: secondary,
+            stroke: mixHex(primary, '#111111', 0.45),
+            accent: mixHex(secondary, '#ffffff', 0.35),
+            flame: mixHex(secondary, '#ffd66b', 0.38)
+          };
+        }
+
+        function cellFromWorld(x, y) {
+          return {
+            x: clamp(Math.floor(x / CELL), 0, COLS - 1),
+            y: clamp(Math.floor(y / CELL), 0, ROWS - 1)
+          };
+        }
+
+        function buildPathBetweenCells(start, goal) {
+          var key = function (c) { return c.x + ':' + c.y; };
+          var startKey = key(start);
+          var goalKey = key(goal);
+          if (startKey === goalKey) return [start];
+
+          var queue = [start];
+          var head = 0;
+          var visited = Object.create(null);
+          var prev = Object.create(null);
+          visited[startKey] = true;
+
+          while (head < queue.length) {
+            var cur = queue[head++];
+            var cell = state.cells[cur.y] && state.cells[cur.y][cur.x];
+            if (!cell) continue;
+
+            var neighbors = [];
+            if (!cell.walls.top && cur.y > 0) neighbors.push({ x: cur.x, y: cur.y - 1 });
+            if (!cell.walls.right && cur.x < COLS - 1) neighbors.push({ x: cur.x + 1, y: cur.y });
+            if (!cell.walls.bottom && cur.y < ROWS - 1) neighbors.push({ x: cur.x, y: cur.y + 1 });
+            if (!cell.walls.left && cur.x > 0) neighbors.push({ x: cur.x - 1, y: cur.y });
+
+            for (var i = 0; i < neighbors.length; i++) {
+              var n = neighbors[i];
+              var nk = key(n);
+              if (visited[nk]) continue;
+              visited[nk] = true;
+              prev[nk] = cur;
+              if (nk === goalKey) {
+                var path = [n];
+                var walk = cur;
+                while (walk) {
+                  path.push(walk);
+                  if (key(walk) === startKey) break;
+                  walk = prev[key(walk)] || null;
+                }
+                path.reverse();
+                return path;
+              }
+              queue.push(n);
+            }
+          }
+
+          return null;
+        }
+
+        function buildRocketRoute(fromX, fromY, toX, toY) {
+          var start = cellFromWorld(fromX, fromY);
+          var goal = cellFromWorld(toX, toY);
+          return buildPathBetweenCells(start, goal);
+        }
+
+        function hasLineOfSight(x1, y1, x2, y2, probeRadius) {
+          var dist = hypot2(x2 - x1, y2 - y1);
+          var steps = Math.max(1, Math.ceil(dist / 10));
+          for (var i = 1; i <= steps; i++) {
+            var t = i / steps;
+            var px = x1 + (x2 - x1) * t;
+            var py = y1 + (y2 - y1) * t;
+            if (circleHitsWall(px, py, probeRadius)) return false;
+          }
+          return true;
+        }
+
+        function traceLaser(originX, originY, angle, maxRange, maxBounces, ownerId, applyDamage) {
+          var segments = [];
+          var step = SR(8);
+          var probe = SR(3);
+          var x = originX;
+          var y = originY;
+          var dx = Math.cos(angle);
+          var dy = Math.sin(angle);
+          var remaining = maxRange;
+          var bounces = 0;
+          var loops = 0;
+
+          while (remaining > 0 && loops < 18) {
+            loops += 1;
+            var startX = x;
+            var startY = y;
+            var traveled = 0;
+            var collided = false;
+
+            while (traveled < remaining) {
+              var nx = x + dx * step;
+              var ny = y + dy * step;
+              var blocked = nx < 0 || nx > WORLD_W || ny < 0 || ny > WORLD_H || circleHitsWall(nx, ny, probe);
+
+              if (blocked) {
+                segments.push({ x1: startX, y1: startY, x2: x, y2: y });
+                if (bounces >= maxBounces) {
+                  return { segments: segments, hitTank: null };
+                }
+                var blockX = nx < 0 || nx > WORLD_W || circleHitsWall(nx, y, probe);
+                var blockY = ny < 0 || ny > WORLD_H || circleHitsWall(x, ny, probe);
+                if (blockX) dx *= -1;
+                if (blockY) dy *= -1;
+                if (!blockX && !blockY) {
+                  dx *= -1;
+                  dy *= -1;
+                }
+                x = clamp(x + dx * SR(4), SR(2), WORLD_W - SR(2));
+                y = clamp(y + dy * SR(4), SR(2), WORLD_H - SR(2));
+                bounces += 1;
+                remaining -= traveled;
+                collided = true;
+                break;
+              }
+
+              for (var ti = 0; ti < state.tanks.length; ti++) {
+                var tank = state.tanks[ti];
+                if (!tank.alive || tank.id === ownerId) continue;
+                if (hypot2(tank.x - nx, tank.y - ny) <= tank.radius + probe) {
+                  segments.push({ x1: startX, y1: startY, x2: nx, y2: ny });
+                  if (applyDamage) tank.alive = false;
+                  return { segments: segments, hitTank: tank };
+                }
+              }
+
+              x = nx;
+              y = ny;
+              traveled += step;
+            }
+
+            if (!collided) {
+              segments.push({ x1: startX, y1: startY, x2: x, y2: y });
+              break;
+            }
+          }
+
+          return { segments: segments, hitTank: null };
+        }
+
+        function steerBulletTo(bullet, tx, ty, dt) {
+          var currentAngle = Math.atan2(bullet.vy, bullet.vx);
+          var targetAngle = Math.atan2(ty - bullet.y, tx - bullet.x);
+          var diff = normAngle(targetAngle - currentAngle);
+          var maxTurn = bullet.turnRate * dt;
+          var nextAngle = currentAngle + clamp(diff, -maxTurn, maxTurn);
+          var speed = bullet.speed || SR(132);
+          bullet.vx = Math.cos(nextAngle) * speed;
+          bullet.vy = Math.sin(nextAngle) * speed;
+        }
+
+        function updateRocketGuidance(bullet, dt) {
+          if (bullet.homingDelay > 0) {
+            bullet.homingDelay -= dt;
+            return;
+          }
+
+          bullet.homingTime = (bullet.homingTime || 0) + dt;
+          if (bullet.homingTime > 2.2) return;
+
+          var target = findNearestEnemy(bullet.owner, bullet.x, bullet.y);
+          if (!target) return;
+
+          var targetDist = hypot2(target.x - bullet.x, target.y - bullet.y);
+          bullet.navTimer -= dt;
+          if (bullet.navTimer <= 0 || typeof bullet.lockX !== 'number') {
+            var targetIntent = getTankMoveIntent(target);
+            var lead = Math.min(0.07, targetDist / 1700);
+            bullet.lockX = target.x + Math.cos(target.angle) * target.speed * targetIntent * lead;
+            bullet.lockY = target.y + Math.sin(target.angle) * target.speed * targetIntent * lead;
+            bullet.navTimer = 0.2 + Math.random() * 0.12;
+          }
+
+          var desiredSpeed = targetDist > 260 ? 185 : 145;
+          bullet.speed += (desiredSpeed - bullet.speed) * Math.min(1, dt * 1.8);
+          bullet.turnRate = targetDist < 120 ? 3.2 : 4.2;
+          steerBulletTo(bullet, bullet.lockX, bullet.lockY, dt);
+        }
+
+        function getTankMoveIntent(tank) {
+          var k = tank.keys;
+          return (keysDown[k.f] ? 1 : 0) + (keysDown[k.b] ? -0.68 : 0);
+        }
+
+        function buildTornadoRoamPath(startX, startY) {
+          var margin = 40;
+          var rowStep = Math.max(68, Math.floor(CELL * 0.82));
+          var colStep = Math.max(92, Math.floor(CELL * 1.05));
+          var points = [];
+          var row = 0;
+
+          for (var y = margin; y <= WORLD_H - margin; y += rowStep) {
+            if (row % 2 === 0) {
+              for (var x = margin; x <= WORLD_W - margin; x += colStep) {
+                points.push({ x: x, y: y });
+              }
+            } else {
+              for (var xr = WORLD_W - margin; xr >= margin; xr -= colStep) {
+                points.push({ x: xr, y: y });
+              }
+            }
+            row += 1;
+          }
+
+          if (!points.length) points.push({ x: WORLD_W / 2, y: WORLD_H / 2 });
+
+          var nearest = 0;
+          var best = Infinity;
+          for (var i = 0; i < points.length; i++) {
+            var d = hypot2(points[i].x - startX, points[i].y - startY);
+            if (d < best) {
+              best = d;
+              nearest = i;
+            }
+          }
+
+          return { points: points, index: nearest, stuck: 0, lastDist: Infinity };
+        }
+
+        function updateTornadoGuidance(bullet, dt) {
+          if (!bullet.roam) {
+            bullet.roam = buildTornadoRoamPath(bullet.x, bullet.y);
+          }
+
+          var roam = bullet.roam;
+          var speed = bullet.speed || 360;
+          var point = roam.points[roam.index];
+          var dist = hypot2(point.x - bullet.x, point.y - bullet.y);
+
+         

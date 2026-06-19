@@ -1,0 +1,268 @@
+});
+          state.portals.push({ id: 2, x: b.x, y: b.y, radius: portalRadius, pair: 1 });
+        }
+
+        function getPortalById(id) {
+          for (var i = 0; i < state.portals.length; i++) {
+            if (state.portals[i].id === id) return state.portals[i];
+          }
+          return null;
+        }
+
+        function teleportEntity(entity, radius) {
+          if (!state.portals || state.portals.length < 2) return;
+          var insidePortalId = 0;
+          for (var ci = 0; ci < state.portals.length; ci++) {
+            var cp = state.portals[ci];
+            if (hypot2(entity.x - cp.x, entity.y - cp.y) <= cp.radius + radius) {
+              insidePortalId = cp.id;
+              break;
+            }
+          }
+          if (entity.portalLockId) {
+            if (insidePortalId === entity.portalLockId) return;
+            if (!insidePortalId) entity.portalLockId = 0;
+          }
+          if (!insidePortalId) return;
+          for (var i = 0; i < state.portals.length; i++) {
+            var p = state.portals[i];
+            if (hypot2(entity.x - p.x, entity.y - p.y) > p.radius + radius) continue;
+            var out = getPortalById(p.pair);
+            if (!out) return;
+            var savedVx = entity.vx;
+            var savedVy = entity.vy;
+            var savedSpeed = entity.speed;
+            entity.x = clamp(out.x, radius + 2, WORLD_W - radius - 2);
+            entity.y = clamp(out.y, radius + 2, WORLD_H - radius - 2);
+            if (typeof savedVx === 'number') entity.vx = savedVx;
+            if (typeof savedVy === 'number') entity.vy = savedVy;
+            if (typeof savedSpeed === 'number') entity.speed = savedSpeed;
+            entity.portalLockId = out.id;
+            playPortalSound();
+            return;
+          }
+        }
+
+        function findSafeSpotNear(cx, cy, radius, bodyRadius) {
+          for (var i = 0; i < 24; i++) {
+            var a = Math.random() * Math.PI * 2;
+            var d = Math.random() * radius;
+            var x = clamp(cx + Math.cos(a) * d, bodyRadius + 3, WORLD_W - bodyRadius - 3);
+            var y = clamp(cy + Math.sin(a) * d, bodyRadius + 3, WORLD_H - bodyRadius - 3);
+            if (!circleHitsWall(x, y, bodyRadius)) return { x: x, y: y };
+          }
+          return { x: clamp(cx, bodyRadius + 3, WORLD_W - bodyRadius - 3), y: clamp(cy, bodyRadius + 3, WORLD_H - bodyRadius - 3) };
+        }
+
+        function startRocketAim(tank) {
+          tank.rocketAimX = clamp(tank.x + Math.cos(tank.angle) * 180, 24, WORLD_W - 24);
+          tank.rocketAimY = clamp(tank.y + Math.sin(tank.angle) * 180, 24, WORLD_H - 24);
+          tank.rocketAiming = true;
+          setStatus(tank.name + ' наводит ракету. Нажми выстрел еще раз для подрыва.');
+        }
+
+        function confirmRocketAim(tank) {
+          state.rocketStrikes.push({
+            owner: tank.id,
+            x: tank.rocketAimX,
+            y: tank.rocketAimY,
+            timer: 2.5,
+            total: 2.5,
+            nextBeep: 0,
+            beepGap: 0.42
+          });
+          tank.rocketAiming = false;
+          tank.weaponAmmo -= 1;
+          if (tank.weaponAmmo <= 0) tank.weaponTimer = 5;
+          tank.weapon = 'normal';
+          tank.weaponAmmo = 0;
+          setStatus(tank.name + ' зафиксировал цель ракеты.');
+        }
+
+        function updateRocketStrikeTimers(dt) {
+          for (var i = 0; i < state.rocketStrikes.length; i++) {
+            var strike = state.rocketStrikes[i];
+            strike.timer -= dt;
+            strike.nextBeep -= dt;
+
+            if (strike.nextBeep <= 0 && strike.timer > 0) {
+              playRocketLockBeep();
+              var t = clamp(strike.timer / strike.total, 0, 1);
+              strike.beepGap = 0.12 + t * 0.4;
+              strike.nextBeep = strike.beepGap;
+            }
+
+            if (strike.timer <= 0) {
+              state.explosions.push({
+                x: strike.x,
+                y: strike.y,
+                owner: strike.owner,
+                maxRadius: 142,
+                radius: 40,
+                life: 0.38,
+                duration: 0.38,
+                hit: Object.create(null)
+              });
+              state.flash = Math.max(state.flash, 0.18);
+              playRocketBurstSound();
+              strike.dead = true;
+            }
+          }
+
+          state.rocketStrikes = state.rocketStrikes.filter(function (s) { return !s.dead; });
+        }
+
+        function shoot(tank) {
+          var palette = getWeaponPalette(tank.id);
+
+          if (tank.weapon === 'drill') {
+            if (tank.drillActive) return false;
+            tank.drillActive = true;
+            tank.drillTimer = 4.8;
+            tank.weapon = 'normal';
+            tank.weaponAmmo = 0;
+            tank.weaponTimer = 0;
+            setStatus(tank.name + ' активировал бур. Лоб защищен, фланги уязвимы.');
+            playDrillSound();
+            tank.cooldown = 0.35;
+            return true;
+          }
+
+          if (tank.weapon === 'rocket') {
+            if (tank.rocketAiming) {
+              confirmRocketAim(tank);
+              playRocketSound();
+              tank.cooldown = 0.35;
+              return true;
+            }
+
+            startRocketAim(tank);
+            playRocketSound();
+            tank.cooldown = 0.18;
+            return true;
+          }
+
+          if (tank.weapon === 'mega' && tank.megaBulletId) {
+            var mega = null;
+            for (var mb = 0; mb < state.bullets.length; mb++) {
+              if (!state.bullets[mb].dead && state.bullets[mb].id === tank.megaBulletId) {
+                mega = state.bullets[mb];
+                break;
+              }
+            }
+
+            if (mega) {
+              mega.dead = true;
+              state.explosions.push({
+                x: mega.x,
+                y: mega.y,
+                owner: tank.id,
+                maxRadius: Math.max(WORLD_W, WORLD_H) * 0.5,
+                radius: SR(40),
+                life: 0.42,
+                duration: 0.42,
+                hit: Object.create(null)
+              });
+              state.flash = Math.max(state.flash, 0.28);
+              tank.megaBulletId = 0;
+              tank.weapon = 'normal';
+              tank.weaponAmmo = 0;
+              playMegaExplodeSound();
+              tank.cooldown = 0.24;
+              return true;
+            }
+
+            tank.megaBulletId = 0;
+            tank.weapon = 'normal';
+            tank.weaponAmmo = 0;
+          }
+
+          var activeBullets = getOwnedActiveBulletCount(tank.id);
+          var slots = MAX_BULLETS_PER_TANK - activeBullets;
+          if (slots <= 0) return false;
+
+          var effectiveWeapon = tank.weapon;
+          if (effectiveWeapon !== 'normal' && tank.weaponAmmo <= 0 && !(effectiveWeapon === 'mega' && tank.megaBulletId)) {
+            effectiveWeapon = 'normal';
+          }
+
+          var muzzle = tank.radius + SR(8);
+          var bx = tank.x + Math.cos(tank.angle) * muzzle;
+          var by = tank.y + Math.sin(tank.angle) * muzzle;
+          if (effectiveWeapon !== 'tornado' && circleHitsWall(bx, by, SR(4))) return false;
+
+          playFireClickSound();
+
+          if (effectiveWeapon === 'shotgun') {
+            var pellets = Math.min(5, slots);
+            for (var p = 0; p < pellets; p++) {
+              var spread = ((p / Math.max(1, pellets - 1)) - 0.5) * 0.5 + (Math.random() - 0.5) * 0.08;
+              var a = tank.angle + spread;
+              spawnBullet(tank, {
+                kind: 'shotgun',
+                x: bx,
+                y: by,
+                vx: Math.cos(a) * SR(175),
+                vy: Math.sin(a) * SR(175),
+                radius: SR(2.5),
+                color: palette.secondary,
+                strokeColor: palette.stroke,
+                safe: 0.08,
+                maxBounces: 0,
+                noBounce: true,
+                life: 0.95
+              });
+            }
+            playShotgunSound();
+            tank.weaponAmmo -= 1;
+            if (tank.weaponAmmo <= 0) tank.weaponTimer = 5;
+            tank.cooldown = 0.72;
+          } else if (effectiveWeapon === 'mega') {
+            spawnBullet(tank, {
+              kind: 'mega',
+              x: bx,
+              y: by,
+              vx: Math.cos(tank.angle) * SR(120),
+              vy: Math.sin(tank.angle) * SR(120),
+              radius: SR(8),
+              color: mixHex(palette.primary, '#f4dc67', 0.42),
+              strokeColor: mixHex(palette.primary, '#aa8822', 0.5),
+              safe: 0.14,
+              maxBounces: 4,
+              life: 12
+            });
+            tank.megaBulletId = nextBulletId - 1;
+            playMegaLaunchSound();
+            tank.weaponAmmo -= 1;
+            if (tank.weaponAmmo <= 0) tank.weaponTimer = 5;
+            tank.cooldown = 0.55;
+          } else if (effectiveWeapon === 'tornado') {
+            var tornadoRadius = SR(36);
+            var tornadoSpawn = findFreeSpawnOnRay(tank.x, tank.y, tank.angle, tornadoRadius, 34, 140);
+            if (!tornadoSpawn) return false;
+            spawnBullet(tank, {
+              kind: 'tornado',
+              x: tornadoSpawn.x,
+              y: tornadoSpawn.y,
+              vx: Math.cos(tank.angle) * SR(430),
+              vy: Math.sin(tank.angle) * SR(430),
+              radius: tornadoRadius,
+              color: mixHex(palette.primary, '#8fd3ff', 0.4),
+              strokeColor: palette.stroke,
+              safe: 0.2,
+              maxBounces: 999,
+              noBounce: false,
+              life: 9,
+              speed: SR(430),
+              turnRate: 5.4,
+              axisPref: Math.abs(Math.cos(tank.angle)) >= Math.abs(Math.sin(tank.angle)) ? 'x' : 'y',
+              navInterval: 0.16,
+              wanderTimer: 0
+            });
+            playTornadoCastSound();
+            tank.weaponAmmo -= 1;
+            if (tank.weaponAmmo <= 0) tank.weaponTimer = 5;
+            tank.cooldown = 0.7;
+          } else if (effectiveWeapon === 'laser') {
+            var laserSpeed = SR(520);
+            spawnBullet(tank, {

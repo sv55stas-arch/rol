@@ -1,0 +1,253 @@
+keA = Math.random() * Math.PI * 2;
+              var smokeR = tank.radius * (0.25 + Math.random() * 0.65);
+              state.tankSmoke.push({
+                x: tank.x + Math.cos(smokeA) * smokeR,
+                y: tank.y + Math.sin(smokeA) * smokeR,
+                vx: (Math.random() - 0.5) * SR(14),
+                vy: (Math.random() - 0.5) * SR(14),
+                r: SR(4 + Math.random() * 4),
+                life: 0.7,
+              });
+            }
+          }
+
+          teleportEntity(tank, tank.radius);
+
+          if (tank.weapon !== 'normal' && tank.weaponAmmo <= 0 && !(tank.weapon === 'mega' && tank.megaBulletId)) {
+            tank.weaponTimer -= dt;
+            if (tank.weaponTimer <= 0) {
+              tank.weapon = 'normal';
+              tank.weaponAmmo = 0;
+              tank.weaponTimer = 0;
+              tank.megaBulletId = 0;
+            }
+          }
+
+          var fireRateMul = state.eventName === 'rapidFire' && state.eventTimeLeft > 0 ? 1.65 : 1;
+          tank.cooldown -= dt * fireRateMul;
+          var firePressed = !!keysDown[k.s];
+          if (tank.weapon === 'rocket' && tank.rocketAiming) {
+            if (firePressed && !tank.fireHeld && tank.cooldown <= 0) {
+              shoot(tank);
+            }
+            tank.fireHeld = firePressed;
+            return;
+          }
+          if (tank.weapon === 'mega') {
+            if (firePressed && !tank.fireHeld && tank.cooldown <= 0) {
+              shoot(tank);
+            }
+          } else if (firePressed && tank.cooldown <= 0) {
+            shoot(tank);
+          }
+          tank.fireHeld = firePressed;
+        }
+
+        function reflectBullet(bullet, axis) {
+          if (bullet.noBounce) {
+            bullet.dead = true;
+            playBulletFadeSound(bullet.kind);
+            return;
+          }
+          if (axis === 'v') bullet.vx *= -1;
+          else if (axis === 'h') bullet.vy *= -1;
+          else {
+            bullet.vx *= -1;
+            bullet.vy *= -1;
+          }
+          if (state.eventName === 'ricochet' && state.eventTimeLeft > 0) {
+            var bounceSpeed = Math.max(SR(120), hypot2(bullet.vx, bullet.vy) * 1.06);
+            var bounceAngle = Math.atan2(bullet.vy, bullet.vx) + (Math.random() - 0.5) * 0.22;
+            bullet.vx = Math.cos(bounceAngle) * bounceSpeed;
+            bullet.vy = Math.sin(bounceAngle) * bounceSpeed;
+          }
+          playBounceSound();
+          bullet.bounces += 1;
+          if (bullet.bounces > bullet.maxBounces) {
+            bullet.dead = true;
+            playBulletFadeSound(bullet.kind);
+          }
+        }
+
+        function detonateRocket(bullet) {
+          if (!bullet || bullet.dead || bullet.kind !== 'rocket') return;
+          bullet.dead = true;
+          state.explosions.push({
+            x: bullet.x,
+            y: bullet.y,
+            owner: bullet.owner,
+            maxRadius: 118,
+            radius: 32,
+            life: 0.34,
+            duration: 0.34,
+            hit: Object.create(null)
+          });
+          state.flash = Math.max(state.flash, 0.16);
+          playRocketBurstSound();
+        }
+
+        function updateExplosions(dt) {
+          for (var e = 0; e < state.explosions.length; e++) {
+            var explosion = state.explosions[e];
+            explosion.life -= dt;
+            var progress = 1 - clamp(explosion.life / explosion.duration, 0, 1);
+            explosion.radius = explosion.maxRadius * (0.28 + progress * 0.72);
+
+            for (var t = 0; t < state.tanks.length; t++) {
+              var tank = state.tanks[t];
+              if (!tank.alive) continue;
+              if (tank.id === explosion.owner) continue;
+              if (explosion.hit[tank.id]) continue;
+              if (state.eventName === 'vortex' && state.eventTimeLeft > 0) continue;
+              var d = hypot2(tank.x - explosion.x, tank.y - explosion.y);
+              if (d > explosion.radius + tank.radius) continue;
+              if (!explosion.ignoreLOS && !hasLineOfSight(explosion.x, explosion.y, tank.x, tank.y, 6)) continue;
+              explosion.hit[tank.id] = true;
+              tank.alive = false;
+              state.flash = Math.max(state.flash, 0.2);
+              playHitSound();
+            }
+          }
+
+          state.explosions = state.explosions.filter(function (exp) {
+            return exp.life > 0;
+          });
+        }
+
+        function updateBullet(bullet, dt) {
+          if (bullet.hitLock > 0) bullet.hitLock = Math.max(0, bullet.hitLock - dt);
+
+          bullet.safe -= dt;
+          bullet.life -= dt;
+          if (bullet.kind === 'mine') {
+            if (state.eventName === 'vortex' && state.eventTimeLeft > 0) return;
+            for (var mi = 0; mi < state.tanks.length; mi++) {
+              var mineVictim = state.tanks[mi];
+              if (!mineVictim.alive || mineVictim.id === bullet.owner) continue;
+              if (hypot2(mineVictim.x - bullet.x, mineVictim.y - bullet.y) <= SR(78)) {
+                bullet.dead = true;
+                state.explosions.push({
+                  x: bullet.x,
+                  y: bullet.y,
+                  owner: bullet.owner,
+                  maxRadius: SR(140),
+                  radius: SR(36),
+                  life: 0.26,
+                  duration: 0.26,
+                  hit: Object.create(null),
+                  ignoreLOS: true
+                });
+                playHitSound();
+                return;
+              }
+            }
+            return;
+          }
+
+          if (state.eventName === 'gravity' && state.eventTimeLeft > 0) {
+            bullet.vx += Math.sin(state.time * 3.5 + bullet.id) * SR(10) * dt;
+            bullet.vy += Math.cos(state.time * 3.2 + bullet.id * 0.7) * SR(10) * dt;
+          }
+          if (state.eventName === 'flood' && state.eventTimeLeft > 0) {
+            bullet.vx *= 1 - dt * 0.16;
+            bullet.vy *= 1 - dt * 0.16;
+          }
+          if (state.eventName === 'ricochet' && state.eventTimeLeft > 0 && !bullet.noBounce) {
+            bullet.maxBounces = Math.max(bullet.maxBounces || 0, 260);
+          }
+          if (bullet.kind === 'rocket') {
+            if (bullet.stuck) {
+              bullet.fuse -= dt;
+              if (bullet.fuse <= 0) {
+                detonateRocket(bullet);
+                return;
+              }
+            } else {
+              bullet.speed = Math.min(SR(230), (bullet.speed || SR(175)) + dt * SR(28));
+              var rocketAngle = Math.atan2(bullet.vy, bullet.vx);
+              bullet.vx = Math.cos(rocketAngle) * bullet.speed;
+              bullet.vy = Math.sin(rocketAngle) * bullet.speed;
+            }
+          }
+          if (bullet.life <= 0) {
+            if (bullet.kind === 'rocket') {
+              detonateRocket(bullet);
+            } else {
+              bullet.dead = true;
+              playBulletFadeSound(bullet.kind);
+            }
+            return;
+          }
+
+          if (bullet.kind === 'rocket' && bullet.trail && bullet.trail.length) {
+            for (var ti = 0; ti < bullet.trail.length; ti++) {
+              bullet.trail[ti].life -= dt;
+            }
+            bullet.trail = bullet.trail.filter(function (p) { return p.life > 0; });
+          }
+
+          if (bullet.kind === 'tornado') {
+            updateTornadoGuidance(bullet, dt);
+          }
+
+          var steps = Math.max(1, Math.ceil((Math.max(Math.abs(bullet.vx), Math.abs(bullet.vy)) * dt) / 3));
+          var sdt = dt / steps;
+
+          for (var i = 0; i < steps; i++) {
+            var nextX = bullet.x + bullet.vx * sdt;
+            var nextY = bullet.y + bullet.vy * sdt;
+
+            if (bullet.kind === 'tornado') {
+              if (nextX < bullet.radius) nextX = WORLD_W - bullet.radius;
+              else if (nextX > WORLD_W - bullet.radius) nextX = bullet.radius;
+              if (nextY < bullet.radius) nextY = WORLD_H - bullet.radius;
+              else if (nextY > WORLD_H - bullet.radius) nextY = bullet.radius;
+
+              bullet.x = nextX;
+              bullet.y = nextY;
+
+              for (var tw = 0; tw < state.tanks.length; tw++) {
+                var victim = state.tanks[tw];
+                if (!victim.alive) continue;
+                if (victim.id === bullet.owner) continue;
+                if (hypot2(victim.x - bullet.x, victim.y - bullet.y) <= victim.radius + bullet.radius) {
+                  if (bullet.hitLock <= 0 && !victim.tornadoCarry) {
+                    victim.tornadoCarry = {
+                      bulletId: bullet.id,
+                      timeLeft: 2.2,
+                      spin: Math.random() * Math.PI * 2
+                    };
+                    bullet.hitLock = 0.35;
+                    playTornadoHitSound();
+                  }
+                }
+              }
+              continue;
+            }
+
+            var ignoresWalls = false;
+            var blockedNext = !insideWorld(nextX, nextY, bullet.radius) || (!ignoresWalls && circleHitsWall(nextX, nextY, bullet.radius));
+
+            if (!blockedNext) {
+              bullet.x = nextX;
+              bullet.y = nextY;
+            } else {
+              if (bullet.kind === 'rocket') {
+                bullet.stuck = true;
+                bullet.vx = 0;
+                bullet.vy = 0;
+                bullet.x = clamp(bullet.x, bullet.radius, WORLD_W - bullet.radius);
+                bullet.y = clamp(bullet.y, bullet.radius, WORLD_H - bullet.radius);
+                break;
+              }
+
+              var blockedX = !insideWorld(nextX, bullet.y, bullet.radius) || (!ignoresWalls && circleHitsWall(nextX, bullet.y, bullet.radius));
+              var blockedY = !insideWorld(bullet.x, nextY, bullet.radius) || (!ignoresWalls && circleHitsWall(bullet.x, nextY, bullet.radius));
+
+              if (blockedX && !blockedY) {
+                reflectBullet(bullet, 'v');
+                bullet.x += (bullet.vx >= 0 ? 1 : -1) * 2;
+                bullet.y = nextY;
+              } else if (!blockedX && blockedY) {
+                reflectBullet(bullet, 'h');
+             

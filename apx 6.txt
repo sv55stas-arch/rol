@@ -1,0 +1,256 @@
+ 1;
+          if (pickupType === 'laser') tank.weaponAmmo = 1;
+          if (pickupType === 'mine') tank.weaponAmmo = 2;
+          playPickupSound();
+          var bonusText = tank.name + ' взял бонус: ' + getWeaponName(pickupType);
+          setStatus(bonusText);
+          state.toastText = bonusText;
+          state.toastTimer = 2.4;
+          speakText(getWeaponName(pickupType), 2.2);
+        }
+
+        function triggerEvent(now) {
+          var events = ['speedRush', 'crateRain', 'flood', 'rapidFire', 'ricochet', 'gravity', 'vortex', 'slip'];
+          var pool = events.filter(function (ev) { return ev !== state.lastEvent; });
+          if (!pool.length) pool = events.slice();
+          var picked = pool[rand(0, pool.length - 1)];
+          state.lastEvent = picked;
+
+          if (picked === 'speedRush') {
+            state.eventName = 'speedRush';
+            state.eventTimeLeft = 7;
+            setStatus('Событие: турбо-рывок');
+            if (now) state.toastText = 'Событие: турбо-рывок';
+            if (now) speakText('Турбо рывок');
+          } else if (picked === 'crateRain') {
+            state.eventName = '';
+            state.eventTimeLeft = 0;
+            state.pickupTimer = 0;
+            spawnPickupIfNeeded();
+            setStatus('Событие: дождь ящиков');
+            if (now) state.toastText = 'Событие: дождь ящиков';
+            if (now) speakText('Дождь ящиков');
+          } else if (picked === 'flood') {
+            state.eventName = 'flood';
+            state.eventTimeLeft = 8;
+            setStatus('Событие: наводнение');
+            if (now) state.toastText = 'Событие: наводнение';
+            if (now) speakText('Наводнение');
+          } else if (picked === 'rapidFire') {
+            state.eventName = 'rapidFire';
+            state.eventTimeLeft = 7;
+            setStatus('Событие: ускоренная перезарядка');
+            if (now) state.toastText = 'Событие: ускоренная перезарядка';
+            if (now) speakText('Ускоренная перезарядка');
+          } else if (picked === 'ricochet') {
+            state.eventName = 'ricochet';
+            state.eventTimeLeft = 9;
+            setStatus('Событие: бешеный рикошет');
+            if (now) state.toastText = 'Событие: бешеный рикошет';
+            if (now) speakText('Бешеный рикошет');
+          } else if (picked === 'gravity') {
+            state.eventName = 'gravity';
+            state.eventTimeLeft = 8;
+            setStatus('Событие: грави волна');
+            if (now) state.toastText = 'Событие: грави волна';
+            if (now) speakText('Грави волна');
+          } else if (picked === 'vortex') {
+            state.eventName = 'vortex';
+            state.eventTimeLeft = 9;
+            setStatus('Событие: вихрь центра');
+            if (now) state.toastText = 'Событие: вихрь центра';
+            if (now) speakText('Вихрь центра');
+          } else {
+            state.eventName = 'slip';
+            state.eventTimeLeft = 8;
+            setStatus('Событие: скользкий грунт');
+            if (now) state.toastText = 'Событие: скользкий грунт';
+            if (now) speakText('Скользкий грунт');
+          }
+          if (now) state.toastTimer = 1.7;
+          state.eventTimer = rand(24, 55);
+        }
+
+        function spawnPickupIfNeeded() {
+          if (state.countdown > 0) return;
+          if (state.pickupTimer > 0) return;
+          if (state.pickups.length >= 10) {
+            state.pickupTimer = rand(6, 10);
+            return;
+          }
+
+          var candidates = getOpenCells();
+          var spawned = 0;
+          var targetSpawnCount = 1;
+          for (var i = 0; i < candidates.length; i++) {
+            var c = candidates[i];
+            var center = cellCenter(c);
+            var x = center.x;
+            var y = center.y;
+            var ok = !circleHitsWall(x, y, SR(14));
+            if (!ok) continue;
+            for (var t = 0; t < state.tanks.length; t++) {
+              var tank = state.tanks[t];
+              if (!tank.alive) continue;
+              if (hypot2(tank.x - x, tank.y - y) < SR(130)) {
+                ok = false;
+                break;
+              }
+            }
+            for (var px = 0; px < state.pickups.length; px++) {
+              if (hypot2(state.pickups[px].x - x, state.pickups[px].y - y) < SR(96)) ok = false;
+            }
+            if (!ok) continue;
+
+            var pool = ['drill', 'shotgun', 'rocket', 'tornado', 'laser', 'mine', 'mega'];
+            state.pickups.push({
+              x: x,
+              y: y,
+              radius: SR(13),
+              type: pool[rand(0, pool.length - 1)]
+            });
+            spawned += 1;
+            if (spawned >= targetSpawnCount || state.pickups.length >= 10) break;
+          }
+
+          if (spawned > 0) playCrateSpawnSound();
+          state.pickupTimer = rand(6, 11);
+        }
+
+        function circleIntersectsRect(x, y, r, rect) {
+          var cx = clamp(x, rect.x, rect.x + rect.w);
+          var cy = clamp(y, rect.y, rect.y + rect.h);
+          var dx = x - cx;
+          var dy = y - cy;
+          return dx * dx + dy * dy < r * r;
+        }
+
+        function isWallIntact(wall) {
+          return !wall || !wall.destroyedUntil || state.time >= wall.destroyedUntil;
+        }
+
+        function breakWallsNear(x, y, radius, restoreDelay) {
+          var broken = 0;
+          for (var i = 0; i < state.walls.length; i++) {
+            var wall = state.walls[i];
+            if (!isWallIntact(wall)) continue;
+            if (!circleIntersectsRect(x, y, radius, wall)) continue;
+            wall.destroyedUntil = state.time + restoreDelay;
+            broken += 1;
+          }
+          return broken;
+        }
+
+        function isHitOnShieldFront(tank, hitX, hitY) {
+          var fx = Math.cos(tank.angle);
+          var fy = Math.sin(tank.angle);
+          var vx = hitX - tank.x;
+          var vy = hitY - tank.y;
+          var len = Math.max(0.0001, hypot2(vx, vy));
+          return (vx / len) * fx + (vy / len) * fy > 0.35;
+        }
+
+        function resolveDrillContact(drillTank) {
+          if (!drillTank.alive) return;
+          if (state.eventName === 'vortex' && state.eventTimeLeft > 0) return;
+          for (var i = 0; i < state.tanks.length; i++) {
+            var target = state.tanks[i];
+            if (!target.alive || target.id === drillTank.id) continue;
+            var d = hypot2(target.x - drillTank.x, target.y - drillTank.y);
+            if (d > drillTank.radius + target.radius + 2) continue;
+
+            if (isHitOnShieldFront(drillTank, target.x, target.y)) {
+              target.alive = false;
+              state.flash = Math.max(state.flash, 0.14);
+              playHitSound();
+            } else {
+              drillTank.alive = false;
+              state.flash = Math.max(state.flash, 0.14);
+              playHitSound();
+              return;
+            }
+          }
+        }
+
+        function circleHitsWall(x, y, r) {
+          for (var i = 0; i < state.solids.length; i++) {
+            var solid = state.solids[i];
+            if (!isWallIntact(solid)) continue;
+            if (circleIntersectsRect(x, y, r, solid)) return true;
+          }
+          return false;
+        }
+
+        function hitsWallOnAxis(x, y, r, axis) {
+          for (var i = 0; i < state.solids.length; i++) {
+            var wall = state.solids[i];
+            if (!isWallIntact(wall)) continue;
+            if (wall.axis !== axis && wall.axis !== 'both') continue;
+            if (circleIntersectsRect(x, y, r, wall)) return true;
+          }
+          return false;
+        }
+
+        function insideWorld(x, y, r) {
+          return x - r >= 0 && x + r <= WORLD_W && y - r >= 0 && y + r <= WORLD_H;
+        }
+
+        function moveBodyWithCollisions(body, dx, dy, radius) {
+          var steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 2));
+          var sx = dx / steps;
+          var sy = dy / steps;
+
+          for (var i = 0; i < steps; i++) {
+            var nx = body.x + sx;
+            if (insideWorld(nx, body.y, radius) && !circleHitsWall(nx, body.y, radius)) {
+              body.x = nx;
+            }
+
+            var ny = body.y + sy;
+            if (insideWorld(body.x, ny, radius) && !circleHitsWall(body.x, ny, radius)) {
+              body.y = ny;
+            }
+          }
+
+          body.x = clamp(body.x, radius, WORLD_W - radius);
+          body.y = clamp(body.y, radius, WORLD_H - radius);
+        }
+
+        function findFreeSpawnOnRay(originX, originY, angle, radius, minDist, maxDist) {
+          var step = 6;
+          for (var dist = minDist; dist <= maxDist; dist += step) {
+            var sx = originX + Math.cos(angle) * dist;
+            var sy = originY + Math.sin(angle) * dist;
+            if (!insideWorld(sx, sy, radius)) continue;
+            if (!circleHitsWall(sx, sy, radius)) {
+              return { x: sx, y: sy };
+            }
+          }
+          return null;
+        }
+
+        function randomOpenPoint(margin) {
+          for (var i = 0; i < 50; i++) {
+            var x = rand(margin, WORLD_W - margin);
+            var y = rand(margin, WORLD_H - margin);
+            if (!circleHitsWall(x, y, margin * 0.7)) return { x: x, y: y };
+          }
+          return { x: WORLD_W / 2, y: WORLD_H / 2 };
+        }
+
+        function spawnPortals() {
+          state.portals = [];
+          if (Math.random() < 0.35) return;
+          var portalRadius = SR(22);
+          var minPortalDist = SR(340);
+          var a = randomOpenPoint(SR(28));
+          var b = randomOpenPoint(SR(28));
+          var tries = 0;
+          while (tries < 30 && hypot2(a.x - b.x, a.y - b.y) < minPortalDist) {
+            b = randomOpenPoint(SR(28));
+            tries += 1;
+          }
+          if (hypot2(a.x - b.x, a.y - b.y) < minPortalDist) {
+            b = { x: clamp(a.x + SR(360), SR(50), WORLD_W - SR(50)), y: clamp(a.y + SR(260), SR(50), WORLD_H - SR(50)) };
+          }
+          state.portals.push({ id: 1, x: a.x, y: a.y, radius: portalRadius, pair: 2 

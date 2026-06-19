@@ -1,0 +1,344 @@
+const part1 = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Maze Tanks</title>
+  <style>
+    :root {
+      --bg: #dcd3bc;
+      --panel: #e6dcc7;
+      --panel-2: #d7ccb7;
+      --line: rgba(0,0,0,.12);
+      --text: #23262b;
+      --muted: #6f6257;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      color: var(--text);
+      background: linear-gradient(180deg, #e5e7eb 0%, #cfd4dc 100%);
+    }
+    .page {
+      max-width: 1460px;
+      margin: 0 auto;
+      padding: 20px;
+      background: transparent;
+    }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 16px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, .42);
+      border: 1px solid rgba(71, 85, 105, .24);
+      box-shadow: 0 10px 26px rgba(30, 41, 59, .14);
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 34px;
+      color: #203552;
+      text-shadow: 0 1px 0 rgba(255,255,255,.28);
+    }
+    .subtitle {
+      margin: 0;
+      color: #4b5563;
+    }
+    .status {
+      margin-top: 10px;
+      min-height: 42px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, .42);
+      border: 1px solid rgba(71, 85, 105, .26);
+      color: #1f2937;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.3);
+    }
+    .buttons {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    button {
+      border: 1px solid rgba(0,0,0,.16);
+      border-radius: 14px;
+      padding: 12px 18px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #1b2530;
+      background: #e5e7eb;
+      cursor: pointer;
+      box-shadow: 0 8px 18px rgba(30, 41, 59, .14);
+      transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
+    }
+    button:hover {
+      transform: translateY(-1px);
+      filter: saturate(1.06);
+      box-shadow: 0 12px 22px rgba(30, 41, 59, .2);
+    }
+    button:active {
+      transform: translateY(0);
+      box-shadow: 0 5px 10px rgba(30, 41, 59, .18);
+    }
+    #restartBtn {
+      background: #f2cf7b;
+      border-color: rgba(130, 95, 31, .35);
+    }
+    #roundBtn {
+      background: #67c075;
+      border-color: rgba(30, 103, 48, .4);
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(720px, 1fr) 340px;
+      gap: 16px;
+    }
+    .game-wrap,
+    .panel {
+      background: rgba(244, 245, 247, .95);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: 0 18px 34px rgba(30, 41, 59, .14);
+    }
+    .game-wrap { padding: 14px; }
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 16px;
+      background: #d7dde5;
+    }
+    .panel { padding: 18px; }
+    .panel {
+      background: rgba(244, 245, 247, .95);
+    }
+    .panel h2 {
+      margin: 0 0 10px;
+      font-size: 18px;
+      color: #334155;
+    }
+    .panel section + section {
+      margin-top: 18px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+    }
+    .panel ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+    }
+    .panel li + li { margin-top: 8px; }
+    .name-edit {
+      margin-top: 12px;
+      display: grid;
+      gap: 8px;
+    }
+    .name-edit input {
+      width: 100%;
+      border: 1px solid rgba(0,0,0,.16);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 14px;
+      background: rgba(255,255,255,.62);
+      color: #1f2430;
+    }
+    .name-edit button {
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 14px;
+    }
+    .card {
+      margin-top: 10px;
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(255,255,255,.46);
+      color: #4b5563;
+      border-left: 4px solid transparent;
+    }
+    .card strong {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--text);
+    }
+    .p1 { border-left-color: #61dd90; background: rgba(129, 227, 166, .22); }
+    .p2 { border-left-color: #d4524d; background: rgba(242, 137, 132, .22); }
+    .p3 { border-left-color: #315fbe; background: rgba(131, 168, 245, .22); }
+    @media (max-width: 1160px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 760px) {
+      .page { padding: 12px; }
+      .topbar { flex-direction: column; }
+      .buttons { justify-content: flex-start; }
+      h1 { font-size: 28px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="topbar">
+      <div>
+        <h1>Maze Tanks</h1>
+        <p class="subtitle">Хаос-режим: порталы, торнадо и случайный размер лабиринта каждый раунд.</p>
+        <div class="status" id="status">Загрузка...</div>
+      </div>
+      <div class="buttons">
+        <button id="roundBtn" type="button">Новый раунд</button>
+      </div>
+    </div>
+
+    <div class="layout">
+      <div class="game-wrap">
+        <canvas id="game" width="1100" height="760"></canvas>
+      </div>
+
+      <aside class="panel">
+        <section>
+          <h2>Управление</h2>
+          <div class="card p1">
+            <strong>Игрок 1</strong>
+            W/S - вперед/назад<br>
+            A/D - поворот<br>
+            Q - выстрел
+          </div>
+          <div class="card p2">
+            <strong>Игрок 2</strong>
+            I/K - вперед/назад<br>
+            J/L - поворот<br>
+            Space - выстрел
+          </div>
+          <div class="card p3">
+            <strong>Игрок 3</strong>
+            Up/Down - вперед/назад<br>
+            Left/Right - поворот<br>
+            Enter - выстрел
+          </div>
+          <div class="name-edit">
+            <input id="name1" type="text" maxlength="14" placeholder="Имя Игрока 1" />
+            <input id="name2" type="text" maxlength="14" placeholder="Имя Игрока 2" />
+            <input id="name3" type="text" maxlength="14" placeholder="Имя Игрока 3" />
+            <button id="applyNamesBtn" type="button">Применить имена</button>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      if (window.__mazeTanksApp && typeof window.__mazeTanksApp.destroy === 'function') {
+        try { window.__mazeTanksApp.destroy(); } catch (e) {}
+      }
+`;
+
+const part2 = `
+      function resetNode(id) {
+        var node = document.getElementById(id);
+        if (!node) return null;
+        var clone = node.cloneNode(true);
+        if (node.parentNode) node.parentNode.replaceChild(clone, node);
+        return clone;
+      }
+
+      var statusEl = document.getElementById('status');
+      var canvas = resetNode('game');
+      var roundBtn = resetNode('roundBtn');
+      var applyNamesBtn = resetNode('applyNamesBtn');
+      var name1El = document.getElementById('name1');
+      var name2El = document.getElementById('name2');
+      var name3El = document.getElementById('name3');
+      if (!canvas) return;
+      var ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      function setStatus(text) {
+        if (statusEl) statusEl.textContent = text;
+      }
+
+      window.onerror = function (message) {
+        var msg = String(message || '');
+        if (msg && msg.indexOf('SecurityError') === -1 && statusEl) statusEl.textContent = 'Ошибка JS: ' + msg;
+      };
+
+      try {
+        var VIEW_W = canvas.width;
+        var VIEW_H = canvas.height;
+
+        var CELL = 96;
+        var COLS = 10;
+        var ROWS = 6;
+        var WALL = 6;
+        var WORLD_W = COLS * CELL;
+        var WORLD_H = ROWS * CELL;
+        var WORLD_SCALE = CELL / 96;
+        var OFFSET_X = Math.round((VIEW_W - WORLD_W) / 2);
+        var OFFSET_Y = 132;
+        var arenaPresets = [
+          { cols: 8, rows: 5, cell: 112, label: 'Компакт' },
+          { cols: 10, rows: 6, cell: 96, label: 'Стандарт' },
+          { cols: 12, rows: 7, cell: 78, label: 'Широкий' }
+        ];
+
+        var players = [
+          { id: 1, name: 'Игрок 1', color: '#4fbf73', shell: '#7fe09d', keys: { f: 'KeyW', b: 'KeyS', l: 'KeyA', r: 'KeyD', s: 'KeyQ' } },
+          { id: 2, name: 'Игрок 2', color: '#d4524d', shell: '#ef8b86', keys: { f: 'KeyI', b: 'KeyK', l: 'KeyJ', r: 'KeyL', s: 'Space' } },
+          { id: 3, name: 'Игрок 3', color: '#315fbe', shell: '#6f97ea', keys: { f: 'ArrowUp', b: 'ArrowDown', l: 'ArrowLeft', r: 'ArrowRight', s: 'Enter' } }
+        ];
+        if (name1El) name1El.value = players[0].name;
+        if (name2El) name2El.value = players[1].name;
+        if (name3El) name3El.value = players[2].name;
+
+        var state = {
+          started: true,
+          cells: [],
+          walls: [],
+          obstacles: [],
+          solids: [],
+          tanks: [],
+          bullets: [],
+          groundDecals: [],
+          explosions: [],
+          rocketStrikes: [],
+          pickups: [],
+          pickupTimer: 0,
+          scores: { 1: 0, 2: 0, 3: 0 },
+          round: 1,
+          countdown: 0,
+          message: 'Раунд 1',
+          lastWinner: 0,
+          flash: 0,
+          time: 0,
+          portals: [],
+          arenaLabel: 'Стандарт',
+          toastText: '',
+          toastTimer: 0,
+          laserBeams: [],
+          tankTracks: [],
+          tankSmoke: [],
+          cameraShake: 0,
+          eventTimer: 12,
+          eventName: '',
+          eventTimeLeft: 0,
+          lastEvent: '',
+          eventPortalShiftTimer: 0,
+          chatterTimer: 20
+        };
+
+        var keysDown = Object.create(null);
+        var animId = 0;
+        var destroyed = false;
+        var audioCtx = null;
+        var audioUnlocked = false;
+        var MAX_BULLETS_PER_TANK = 5;
+        var nextBulletId = 1;
+        var runId = (window.__mazeTanksRunId || 0) + 1;
+        window.__mazeTanksRunId = runId;
+        var usedKeys = {
+          Space: true, Enter: true, KeyQ: true,
+          ArrowUp: true, ArrowDown: true, ArrowLeft: true, ArrowRight: true,
+          KeyW: true, KeyS: tru

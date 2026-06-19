@@ -1,0 +1,237 @@
+ventName === 'vortex' && state.eventTimeLeft > 0) {
+            var vx = Math.sin(state.time * 7) * 0.5 + 0.5;
+            ctx.fillStyle = 'rgba(200, 150, 255, ' + (0.03 + vx * 0.06).toFixed(3) + ')';
+            ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+          } else if (state.eventName === 'slip' && state.eventTimeLeft > 0) {
+            var sl = Math.sin(state.time * 9) * 0.5 + 0.5;
+            ctx.fillStyle = 'rgba(185, 245, 255, ' + (0.03 + sl * 0.05).toFixed(3) + ')';
+            ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+          }
+        }
+
+        function drawScores() {
+          roundRect(18, 10, VIEW_W - 36, 98, 14);
+          ctx.fillStyle = 'rgba(255,255,255,.22)';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(0,0,0,.12)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          var cards = [
+            { x: 28, y: 18, id: 1, color: players[0].color, label: players[0].name },
+            { x: 390, y: 18, id: 2, color: players[1].color, label: players[1].name },
+            { x: 752, y: 18, id: 3, color: players[2].color, label: players[2].name }
+          ];
+          ctx.textBaseline = 'middle';
+          for (var i = 0; i < cards.length; i++) {
+            var c = cards[i];
+            roundRect(c.x, c.y, 320, 42, 13);
+            ctx.fillStyle = 'rgba(255,255,255,.36)';
+            ctx.fill();
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = state.lastWinner === c.id ? c.color : 'rgba(0,0,0,.12)';
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(c.x + 24, c.y + 21, 8, 0, Math.PI * 2);
+            ctx.fillStyle = c.color;
+            ctx.fill();
+
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#20242a';
+            ctx.fillText(c.label, c.x + 42, c.y + 21);
+            ctx.font = 'bold 30px Arial';
+            ctx.textAlign = 'right';
+            ctx.fillText(String(state.scores[c.id]), c.x + 292, c.y + 21);
+          }
+        }
+
+        function drawMessage() {
+          roundRect(VIEW_W / 2 - 380, 64, 760, 40, 12);
+          ctx.fillStyle = 'rgba(255,255,255,.42)';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(0,0,0,.12)';
+          ctx.stroke();
+          ctx.fillStyle = '#1f2328';
+          ctx.font = 'bold 22px Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          var suffix = state.countdown > 0 ? ' - новый раунд через ' + Math.ceil(state.countdown) : '';
+          var eventSuffix = state.eventName && state.eventTimeLeft > 0 ? ' | ' + Math.ceil(state.eventTimeLeft) + 'с' : '';
+          ctx.fillText(state.message + suffix + eventSuffix, VIEW_W / 2, 84);
+
+          if (state.toastTimer > 0 && state.toastText) {
+            var a = clamp(state.toastTimer / 2.4, 0, 1);
+            roundRect(VIEW_W / 2 - 330, 108, 660, 46, 12);
+            ctx.fillStyle = 'rgba(25,30,35,' + (0.5 + a * 0.35).toFixed(3) + ')';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255,230,120,' + (0.4 + a * 0.5).toFixed(3) + ')';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.fillStyle = '#fff6cc';
+            ctx.font = 'bold 24px Arial';
+            ctx.fillText(state.toastText, VIEW_W / 2, 131);
+          }
+        }
+
+        function drawArena() {
+          ctx.save();
+          var shakeX = state.cameraShake > 0 ? (Math.random() - 0.5) * SR(10) * state.cameraShake : 0;
+          var shakeY = state.cameraShake > 0 ? (Math.random() - 0.5) * SR(10) * state.cameraShake : 0;
+          ctx.translate(OFFSET_X + shakeX, OFFSET_Y + shakeY);
+
+          roundRect(-10, -10, WORLD_W + 20, WORLD_H + 20, 22);
+          ctx.fillStyle = '#d7dee8';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(0,0,0,.16)';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.fillStyle = '#d6e8f7';
+          ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+
+          for (var trk = 0; trk < state.tankTracks.length; trk++) {
+            var track = state.tankTracks[trk];
+            var ta = clamp(track.life / 0.45, 0, 1);
+            ctx.save();
+            ctx.translate(track.x, track.y);
+            ctx.rotate(track.a);
+            ctx.fillStyle = 'rgba(42,46,54,' + (0.05 + ta * 0.18).toFixed(3) + ')';
+            roundRect(-track.size * 0.42, -track.size * 0.15, track.size * 0.84, track.size * 0.3, track.size * 0.07);
+            ctx.fill();
+            ctx.restore();
+          }
+
+          for (var sk = 0; sk < state.tankSmoke.length; sk++) {
+            var sm = state.tankSmoke[sk];
+            var sa = clamp(sm.life / 0.7, 0, 1);
+            ctx.beginPath();
+            ctx.arc(sm.x, sm.y, sm.r, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(70,70,70,' + (sa * 0.16).toFixed(3) + ')';
+            ctx.fill();
+          }
+
+          for (var i = 0; i < state.walls.length; i++) {
+            var wall = state.walls[i];
+            if (!isWallIntact(wall)) {
+              var restoreT = clamp((wall.destroyedUntil - state.time) / 9.5, 0, 1);
+              ctx.fillStyle = 'rgba(112,108,103,' + (0.16 + (1 - restoreT) * 0.14).toFixed(3) + ')';
+              ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
+              continue;
+            }
+            ctx.fillStyle = '#605b56';
+            ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
+          }
+
+          for (var o = 0; o < state.obstacles.length; o++) {
+            var obstacle = state.obstacles[o];
+            ctx.fillStyle = '#8e877f';
+            roundRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h, 6);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(0,0,0,.2)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
+
+          for (var lb = 0; lb < state.laserBeams.length; lb++) {
+            var beam = state.laserBeams[lb];
+            var ba = clamp(beam.life / beam.dur, 0, 1);
+            ctx.strokeStyle = 'rgba(0,0,0,' + (0.25 + ba * 0.45).toFixed(3) + ')';
+            ctx.lineWidth = SR(4);
+            ctx.beginPath();
+            ctx.moveTo(beam.x1, beam.y1);
+            ctx.lineTo(beam.x2, beam.y2);
+            ctx.stroke();
+            ctx.strokeStyle = 'rgba(60,60,60,' + (0.3 + ba * 0.5).toFixed(3) + ')';
+            ctx.lineWidth = SR(2);
+            ctx.beginPath();
+            ctx.moveTo(beam.x1, beam.y1);
+            ctx.lineTo(beam.x2, beam.y2);
+            ctx.stroke();
+          }
+
+          for (var pp = 0; pp < state.portals.length; pp++) {
+            var portal = state.portals[pp];
+            var wob = Math.sin(state.time * 6 + pp) * 0.5 + 0.5;
+            ctx.beginPath();
+            ctx.arc(portal.x, portal.y, portal.radius + wob * 3, 0, Math.PI * 2);
+            ctx.strokeStyle = pp === 0 ? 'rgba(120, 255, 240, 0.85)' : 'rgba(255, 164, 255, 0.85)';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(portal.x, portal.y, portal.radius * 0.55, 0, Math.PI * 2);
+            ctx.fillStyle = pp === 0 ? 'rgba(92, 210, 255, 0.3)' : 'rgba(234, 121, 255, 0.3)';
+            ctx.fill();
+          }
+
+          for (var at = 0; at < state.tanks.length; at++) {
+            var aimTank = state.tanks[at];
+            if (!aimTank.alive || aimTank.weapon !== 'laser') continue;
+            var aimLen = SR(380);
+            var aimX1 = aimTank.x + Math.cos(aimTank.angle) * (aimTank.radius + SR(4));
+            var aimY1 = aimTank.y + Math.sin(aimTank.angle) * (aimTank.radius + SR(4));
+            var aimX2 = aimTank.x + Math.cos(aimTank.angle) * aimLen;
+            var aimY2 = aimTank.y + Math.sin(aimTank.angle) * aimLen;
+            ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+            ctx.lineWidth = SR(1.6);
+            ctx.setLineDash([SR(6), SR(4)]);
+            ctx.beginPath();
+            ctx.moveTo(aimX1, aimY1);
+            ctx.lineTo(aimX2, aimY2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+
+          for (var b = 0; b < state.bullets.length; b++) {
+            var bullet = state.bullets[b];
+            if (bullet.kind === 'tornado') {
+              var spin = state.time * 10 + b * 0.2;
+              ctx.save();
+              ctx.translate(bullet.x, bullet.y);
+              ctx.rotate(spin);
+              ctx.globalAlpha = 0.9;
+              for (var sw = 0; sw < 3; sw++) {
+                ctx.beginPath();
+                ctx.strokeStyle = bullet.strokeColor;
+                ctx.lineWidth = 1.4;
+                ctx.arc(0, 0, bullet.radius - sw * 4, 0.4, Math.PI * 1.85);
+                ctx.stroke();
+              }
+              ctx.beginPath();
+              ctx.fillStyle = bullet.color;
+              ctx.arc(0, 0, 3.2, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.restore();
+            } else if (bullet.kind === 'rocket') {
+              if (bullet.trail && bullet.trail.length) {
+                for (var tr = 0; tr < bullet.trail.length; tr++) {
+                  var tp = bullet.trail[tr];
+                  var alpha = Math.max(0, tp.life / 0.22);
+                  ctx.beginPath();
+                  ctx.fillStyle = 'rgba(255, 210, 120,' + (alpha * 0.22).toFixed(3) + ')';
+                  ctx.arc(tp.x, tp.y, tp.size * (0.4 + alpha * 0.3), 0, Math.PI * 2);
+                  ctx.fill();
+                }
+              }
+
+              var rocketAng = Math.atan2(bullet.vy, bullet.vx);
+              var rocketBlink = bullet.stuck ? (Math.sin(state.time * 16) * 0.5 + 0.5) : 0;
+              ctx.save();
+              ctx.translate(bullet.x, bullet.y);
+              ctx.rotate(rocketAng);
+
+              roundRect(-8, -2.7, 12, 5.4, 2);
+              ctx.fillStyle = mixHex(bullet.color, '#d9d9d9', 0.35);
+              ctx.fill();
+              ctx.lineWidth = 1;
+              ctx.strokeStyle = '#101214';
+              ctx.stroke();
+
+              ctx.beginPath();
+              ctx.moveTo(7, 0);
+              ctx.lineTo(3.2, -3.5);
+              ctx.lineTo(3.2, 3.5);
+              ctx.closePath();
+              ctx.fillStyle = '#cfd8df';
+              ctx

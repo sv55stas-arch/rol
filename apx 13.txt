@@ -1,0 +1,173 @@
+  ctx.beginPath();
+          ctx.arc(0, 0, 6.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#5a5a5a';
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.arc(0, 0, 12, 0, Math.PI * 2);
+          ctx.stroke();
+
+          ctx.shadowColor = 'transparent';
+          ctx.shadowBlur = 0;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+
+          var boltPos = [[-9, -6], [9, -6], [-9, 6], [9, 6]];
+          ctx.fillStyle = '#1d1d1d';
+          for (var b = 0; b < boltPos.length; b++) {
+            ctx.beginPath();
+            ctx.arc(boltPos[b][0], boltPos[b][1], 1.2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          if (tank.drillActive) {
+            var glow = Math.sin(state.time * 14 + tank.id) * 0.5 + 0.5;
+            ctx.beginPath();
+            ctx.arc(20, 0, 12, -1.05, 1.05);
+            ctx.strokeStyle = 'rgba(170, 225, 255,' + (0.45 + glow * 0.35).toFixed(3) + ')';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(26, 0);
+            ctx.lineTo(33 + glow * 3, 0);
+            ctx.strokeStyle = '#dff8ff';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+          }
+
+          ctx.restore();
+        }
+
+        function drawFooter() {
+          ctx.fillStyle = 'rgba(30,30,30,.68)';
+          ctx.font = '15px Arial';
+          ctx.textAlign = 'left';
+          ctx.fillText('Локальный режим: 3 игрока на одной клавиатуре', 58, VIEW_H - 28);
+        }
+
+        function drawFlash() {
+          if (state.flash <= 0) return;
+          ctx.save();
+          ctx.globalAlpha = state.flash * 1.7;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+          ctx.restore();
+        }
+
+        function render() {
+          drawBackground();
+          drawScores();
+          drawMessage();
+          drawArena();
+          drawFooter();
+          drawFlash();
+        }
+
+        var lastTime = 0;
+        function loop(ts) {
+          if (destroyed || window.__mazeTanksRunId !== runId) return;
+          if (!lastTime) lastTime = ts;
+          var dt = Math.min(0.033, (ts - lastTime) / 1000);
+          lastTime = ts;
+          update(dt);
+          render();
+          animId = requestAnimationFrame(loop);
+        }
+
+        function onKeyDown(event) {
+          var target = event.target;
+          if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+            return;
+          }
+          if (!audioUnlocked) ensureAudio();
+          if (usedKeys[event.code]) event.preventDefault();
+          keysDown[event.code] = true;
+        }
+
+        function onKeyUp(event) {
+          var target = event.target;
+          if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+            return;
+          }
+          if (usedKeys[event.code]) event.preventDefault();
+          keysDown[event.code] = false;
+        }
+
+        function onBlur() {
+          keysDown = Object.create(null);
+        }
+
+        function applyPlayerNames() {
+          var n1 = name1El && name1El.value ? name1El.value.trim() : '';
+          var n2 = name2El && name2El.value ? name2El.value.trim() : '';
+          var n3 = name3El && name3El.value ? name3El.value.trim() : '';
+          players[0].name = n1 || 'Игрок 1';
+          players[1].name = n2 || 'Игрок 2';
+          players[2].name = n3 || 'Игрок 3';
+          for (var i = 0; i < state.tanks.length; i++) {
+            var t = state.tanks[i];
+            for (var p = 0; p < players.length; p++) {
+              if (players[p].id === t.id) t.name = players[p].name;
+            }
+          }
+          setStatus('Имена обновлены');
+        }
+
+        function onNewRound() {
+          ensureAudio();
+          applyPlayerNames();
+          keysDown = Object.create(null);
+          lastTime = 0;
+          startRound();
+        }
+
+        window.onkeydown = onKeyDown;
+        window.onkeyup = onKeyUp;
+        window.onblur = onBlur;
+        if (roundBtn) roundBtn.onclick = onNewRound;
+        if (applyNamesBtn) applyNamesBtn.onclick = applyPlayerNames;
+
+        window.__mazeTanksApp = {
+          destroy: function () {
+            destroyed = true;
+            window.__mazeTanksRunId = runId + 1;
+            if (animId && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(animId);
+            if (window.onkeydown === onKeyDown) window.onkeydown = null;
+            if (window.onkeyup === onKeyUp) window.onkeyup = null;
+            if (window.onblur === onBlur) window.onblur = null;
+            if (roundBtn) roundBtn.onclick = null;
+            if (applyNamesBtn) applyNamesBtn.onclick = null;
+            if (ctx && canvas) {
+              try {
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+              } catch (e) {}
+            }
+          }
+        };
+
+        startMatch();
+        animId = requestAnimationFrame(loop);
+      } catch (e) {
+        setStatus('Ошибка запуска игры: ' + (e && e.message ? e.message : e));
+      }
+    })();
+  </script>
+</body>
+</html>`;
+
+const mazeTanksHtml = part1 + part2 + part3 + part4 + part5;
+
+export default function App() {
+  return (
+    <main className="min-h-screen bg-stone-200 p-4 md:p-6">
+      <iframe
+        title="Maze Tanks test"
+        srcDoc={mazeTanksHtml}
+        allow="autoplay"
+        className="mx-auto block h-[92vh] w-full max-w-[1500px] rounded-xl border border-black/10 bg-white shadow-lg"
+      />
+    </main>
+  );
+}

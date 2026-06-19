@@ -1,0 +1,280 @@
+e, KeyA: true, KeyD: true,
+          KeyI: true, KeyK: true, KeyJ: true, KeyL: true
+        };
+
+        var groundTextures = {
+          asphalt: null,
+          stones: null
+        };
+`;
+
+const part3 = `
+        function loadGroundTexture(key, url) {
+          try {
+            var img = new Image();
+            img.src = url;
+            groundTextures[key] = img;
+          } catch (e) {}
+        }
+
+        loadGroundTexture('asphalt', '/images/grass-texture.jpg');
+
+        function clamp(v, min, max) {
+          return Math.max(min, Math.min(max, v));
+        }
+
+        function SR(v) {
+          return v * WORLD_SCALE;
+        }
+
+        function hypot2(dx, dy) {
+          return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        function rand(min, max) {
+          return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        function shuffle(arr) {
+          var out = arr.slice();
+          for (var i = out.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var t = out[i];
+            out[i] = out[j];
+            out[j] = t;
+          }
+          return out;
+        }
+
+        function roundRect(x, y, w, h, r) {
+          ctx.beginPath();
+          ctx.moveTo(x + r, y);
+          ctx.lineTo(x + w - r, y);
+          ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+          ctx.lineTo(x + w, y + h - r);
+          ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+          ctx.lineTo(x + r, y + h);
+          ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+          ctx.lineTo(x, y + r);
+          ctx.quadraticCurveTo(x, y, x + r, y);
+          ctx.closePath();
+        }
+
+        function ensureAudio() {
+          var Ctx = window.AudioContext || window.webkitAudioContext;
+          if (!Ctx) return null;
+          if (!audioCtx) audioCtx = new Ctx();
+          if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+          }
+          audioUnlocked = true;
+          return audioCtx;
+        }
+
+        var webSfx = {
+          shoot: 'https://actions.google.com/sounds/v1/weapons/gun_shooting_cocking_foam.ogg',
+          hit: 'https://actions.google.com/sounds/v1/weapons/explosion_hiss_bop_bang.ogg',
+          roundEnd: 'https://actions.google.com/sounds/v1/weapons/cocking_a_50cal_gun.ogg',
+          crate: 'https://actions.google.com/sounds/v1/weapons/gun_reload.ogg',
+          bulletFade: 'https://actions.google.com/sounds/v1/weapons/gun_drop_on_metal_grate.ogg',
+          goofyPortal: 'https://www.soundjay.com/mechanical/sounds/spring-boing-1.mp3',
+          goofyHit: 'https://www.soundjay.com/human/sounds/fart-01.mp3',
+          goofyPickup: 'https://www.soundjay.com/button/sounds/button-16.mp3',
+          bounce: 'https://actions.google.com/sounds/v1/impacts/metal_thin_impact.ogg',
+          laser: 'https://www.soundjay.com/mechanical/sounds/laser-gun-81720.mp3',
+          move: 'https://www.soundjay.com/transportation/sounds/car-drive-by-1.mp3',
+          click: 'https://www.soundjay.com/button/sounds/button-20.mp3'
+        };
+
+        var activeSfx = [];
+        var lastBounceAt = 0;
+        var lastMoveSoundAt = 0;
+        var selectedMaleVoice = null;
+        var speechLockUntil = 0;
+        var chatterPhrases = [
+          'Аккуратно на поворотах.',
+          'Кто последний, тот чинит гусеницы.',
+          'Не стой под рикошетом.',
+          'Мина любит спешащих.',
+          'Лазер ошибок не прощает.',
+          'Порталы не так дружелюбны как выглядят.',
+          'Держитесь подальше от стен.',
+          'Кто стоит на месте, тот мишень.',
+          'Осторожно, торнадо не выбирает друзей.',
+          'Рикошет может вернуться к хозяину.',
+          'Ящик не всегда подарок.',
+          'Дробовик хорош вблизи.',
+          'Мега пуля летит медленно, но бьёт больно.',
+          'Бур ломает стены, но не спину.',
+          'Ракета найдёт тебя.',
+          'Танки не умеют плавать.'
+        ];
+
+        function resolveMaleVoice() {
+          if (!('speechSynthesis' in window)) return null;
+          var voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+          if (!voices || !voices.length) return null;
+          var maleHints = ['male', 'man', 'maxim', 'alexander', 'sergey', 'ivan', 'pavel', 'dmit', 'yuri'];
+          var ruVoices = voices.filter(function (v) { return (v.lang || '').toLowerCase().indexOf('ru') !== -1; });
+          for (var i = 0; i < ruVoices.length; i++) {
+            var name = (ruVoices[i].name || '').toLowerCase();
+            for (var j = 0; j < maleHints.length; j++) {
+              if (name.indexOf(maleHints[j]) !== -1) return ruVoices[i];
+            }
+          }
+          for (var k = 0; k < voices.length; k++) {
+            var name2 = (voices[k].name || '').toLowerCase();
+            for (var h = 0; h < maleHints.length; h++) {
+              if (name2.indexOf(maleHints[h]) !== -1) return voices[k];
+            }
+          }
+          return null;
+        }
+
+        function playWebSound(url, volume, fromSec, maxDurationSec) {
+          if (!audioUnlocked) return;
+          try {
+            var audio = new Audio(url);
+            audio.preload = 'auto';
+            audio.volume = typeof volume === 'number' ? volume : 0.35;
+            audio.muted = false;
+            audio.loop = false;
+            if (typeof fromSec === 'number') {
+              audio.currentTime = fromSec;
+            }
+            activeSfx.push(audio);
+
+            function cleanupAudio() {
+              var idx = activeSfx.indexOf(audio);
+              if (idx !== -1) activeSfx.splice(idx, 1);
+            }
+
+            var cutTimer = 0;
+            var cutMs = typeof maxDurationSec === 'number' && maxDurationSec > 0 ? Math.floor(maxDurationSec * 1000) : 0;
+            if (cutMs > 0) {
+              audio.addEventListener('playing', function () {
+                cutTimer = window.setTimeout(function () {
+                  try {
+                    audio.pause();
+                    audio.currentTime = 0;
+                  } catch (e) {}
+                  cleanupAudio();
+                }, cutMs);
+              }, { once: true });
+            }
+            audio.addEventListener('ended', function () {
+              if (cutTimer) window.clearTimeout(cutTimer);
+              cleanupAudio();
+            }, { once: true });
+            window.setTimeout(cleanupAudio, 4000);
+            audio.play().catch(function () {
+              cleanupAudio();
+            });
+          } catch (e) {}
+        }
+
+        function playTone(freq, dur, type, vol, endFreq) {
+          var ac = ensureAudio();
+          if (!ac) return;
+          var now = ac.currentTime;
+          var osc = ac.createOscillator();
+          var gain = ac.createGain();
+          osc.type = type || 'sine';
+          osc.frequency.setValueAtTime(freq, now);
+          if (typeof endFreq === 'number') {
+            osc.frequency.exponentialRampToValueAtTime(Math.max(18, endFreq), now + dur);
+          }
+          gain.gain.setValueAtTime(0.0001, now);
+          gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, vol || 0.08), now + 0.015);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+          osc.connect(gain);
+          gain.connect(ac.destination);
+          osc.start(now);
+          osc.stop(now + dur + 0.02);
+        }
+
+        function playShootSound() {
+          playTone(360, 0.045, 'square', 0.095, 220);
+          setTimeout(function () { playTone(220, 0.08, 'triangle', 0.075, 130); }, 12);
+          setTimeout(function () { playTone(520, 0.045, 'triangle', 0.05, 360); }, 92);
+        }
+
+        function playShotgunSound() {
+          playShootSound();
+        }
+
+        function playRocketSound() {
+          playShootSound();
+        }
+
+        function playRocketBurstSound() {
+          playTone(130, 0.16, 'sawtooth', 0.08, 65);
+          setTimeout(function () { playTone(240, 0.08, 'square', 0.05, 120); }, 24);
+        }
+
+        function playRocketLockBeep() {
+          playTone(760, 0.045, 'square', 0.045, 700);
+        }
+
+        function playMegaLaunchSound() {
+          playShootSound();
+        }
+
+        function playMegaExplodeSound() {
+          playTone(95, 0.22, 'sawtooth', 0.09, 48);
+          setTimeout(function () { playTone(160, 0.14, 'square', 0.05, 80); }, 45);
+        }
+
+        function playTornadoCastSound() {
+          playShootSound();
+        }
+
+        function playFireClickSound() {
+          playWebSound(webSfx.click, 0.2, 0.01, 0.12);
+        }
+
+        function playTornadoHitSound() {
+          playTone(180, 0.09, 'sawtooth', 0.04, 110);
+        }
+
+        function playLaserSound() {
+          playTone(840, 0.08, 'sine', 0.04, 690);
+        }
+
+        function playMachinegunSound() {
+          playTone(420, 0.04, 'square', 0.026, 300);
+        }
+
+        function playCrateSpawnSound() {
+          playWebSound(webSfx.crate, 0.55, 0.02, 0.35);
+        }
+
+        function playPickupSound() {
+          playWebSound(webSfx.goofyPickup, 0.35, 0.01, 0.25);
+        }
+
+        function playHitSound() {
+          playWebSound(webSfx.goofyHit, 0.2, 0, 0.22);
+          playTone(210, 0.1, 'square', 0.11, 120);
+          setTimeout(function () { playTone(120, 0.18, 'sawtooth', 0.09, 55); }, 24);
+        }
+
+        function playPortalSound() {
+          playWebSound(webSfx.goofyPortal, 0.35, 0.05, 0.25);
+          playTone(680, 0.06, 'triangle', 0.05, 530);
+        }
+
+        function playBulletFadeSound(kind) {
+          playTone(540, 0.055, 'triangle', 0.065, 390);
+        }
+
+        function playWinSound() {
+          playTone(480, 0.11, 'triangle', 0.07, 620);
+          setTimeout(function () { playTone(680, 0.14, 'triangle', 0.075, 860); }, 90);
+        }
+
+        function playBounceSound() {
+          if (state.time - lastBounceAt < 0.045) return;
+          lastBounceAt = state.time;
+          playWebSound(webSfx.bounce, 0.3, 0.01, 0.18);
+          playTone(640, 0.03, 'triangle', 0.03, 52

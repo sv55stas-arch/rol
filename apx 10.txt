@@ -1,0 +1,230 @@
+   bullet.x = nextX;
+                bullet.y += (bullet.vy >= 0 ? 1 : -1) * 2;
+              } else {
+                reflectBullet(bullet, 'both');
+                bullet.x += (bullet.vx >= 0 ? 1 : -1) * 2;
+                bullet.y += (bullet.vy >= 0 ? 1 : -1) * 2;
+              }
+
+              var pushTries = 0;
+              while (pushTries < 4 && (!insideWorld(bullet.x, bullet.y, bullet.radius) || circleHitsWall(bullet.x, bullet.y, bullet.radius))) {
+                bullet.x += (bullet.vx >= 0 ? 1 : -1) * 1.5;
+                bullet.y += (bullet.vy >= 0 ? 1 : -1) * 1.5;
+                pushTries += 1;
+              }
+            }
+
+            bullet.x = clamp(bullet.x, bullet.radius, WORLD_W - bullet.radius);
+            bullet.y = clamp(bullet.y, bullet.radius, WORLD_H - bullet.radius);
+            teleportEntity(bullet, bullet.radius);
+
+            if (bullet.dead) return;
+
+            for (var t = 0; t < state.tanks.length; t++) {
+              var tank = state.tanks[t];
+              if (!tank.alive) continue;
+              if (bullet.kind === 'tornado' && tank.id === bullet.owner) continue;
+              if (bullet.kind === 'mine' && tank.id === bullet.owner) continue;
+              if (tank.id === bullet.owner && bullet.safe > 0) continue;
+              if (hypot2(tank.x - bullet.x, tank.y - bullet.y) <= tank.radius + bullet.radius) {
+                if (state.eventName === 'vortex' && state.eventTimeLeft > 0) continue;
+                if (bullet.kind === 'tornado') {
+                  if (bullet.hitLock <= 0 && !tank.tornadoCarry) {
+                    tank.tornadoCarry = {
+                      bulletId: bullet.id,
+                      timeLeft: 2.2,
+                      spin: Math.random() * Math.PI * 2
+                    };
+                    bullet.hitLock = 0.35;
+                    playTornadoHitSound();
+                  }
+                  continue;
+                }
+                if (tank.drillActive && isHitOnShieldFront(tank, bullet.x, bullet.y)) {
+                  bullet.dead = true;
+                  playBulletFadeSound(bullet.kind);
+                  continue;
+                }
+                if (bullet.kind === 'rocket') {
+                  detonateRocket(bullet);
+                  return;
+                }
+                tank.alive = false;
+                bullet.dead = true;
+                playBulletFadeSound(bullet.kind);
+                state.flash = 0.14;
+                playHitSound();
+                return;
+              }
+            }
+          }
+
+          if (bullet.kind === 'rocket' && !bullet.dead && !bullet.stuck) {
+            bullet.trail.push({ x: bullet.x, y: bullet.y, life: 0.22, size: bullet.radius });
+            if (bullet.trail.length > 10) bullet.trail.shift();
+          }
+          if (bullet.kind === 'laser-bolt' && !bullet.dead) {
+            var prevLX = bullet.x - bullet.vx * dt;
+            var prevLY = bullet.y - bullet.vy * dt;
+            state.laserBeams.push({
+              x1: prevLX,
+              y1: prevLY,
+              x2: bullet.x,
+              y2: bullet.y,
+              life: 0.35,
+              dur: 0.35,
+              color: '#111'
+            });
+          }
+        }
+
+        function update(dt) {
+          state.time += dt;
+          if (state.flash > 0) state.flash = Math.max(0, state.flash - dt);
+          state.eventTimer -= dt;
+          if (state.eventTimeLeft > 0) {
+            state.eventTimeLeft -= dt;
+            if (state.eventTimeLeft <= 0) {
+              state.eventName = '';
+              state.eventTimeLeft = 0;
+              state.eventPortalShiftTimer = 0;
+            }
+          }
+          if (state.eventTimer <= 0) triggerEvent(true);
+
+          if (state.eventName === 'crateRain' && state.eventTimeLeft > 0) {
+            state.pickupTimer -= dt * 2.4;
+            state.cameraShake = Math.max(state.cameraShake, 0.22);
+          }
+          state.pickupTimer -= dt;
+          if (state.pickupTimer <= 0) spawnPickupIfNeeded();
+          if (state.toastTimer > 0) state.toastTimer = Math.max(0, state.toastTimer - dt);
+          state.chatterTimer -= dt;
+          if (state.chatterTimer <= 0) {
+            maybeSpeakRandomLine();
+            state.chatterTimer = rand(18, 40);
+          }
+          if (state.cameraShake > 0) state.cameraShake = Math.max(0, state.cameraShake - dt * 1.8);
+
+          if (state.countdown > 0) {
+            state.countdown -= dt;
+            if (state.countdown <= 0) {
+              state.round += 1;
+              startRound();
+            }
+            return;
+          }
+
+          for (var i = 0; i < state.tanks.length; i++) updateTank(state.tanks[i], dt);
+          for (var j = 0; j < state.bullets.length; j++) {
+            if (!state.bullets[j].dead) updateBullet(state.bullets[j], dt);
+          }
+          state.bullets = state.bullets.filter(function (b) { return !b.dead; });
+          for (var lb = 0; lb < state.laserBeams.length; lb++) {
+            state.laserBeams[lb].life -= dt;
+          }
+          state.laserBeams = state.laserBeams.filter(function (beam) { return beam.life > 0; });
+          for (var tr = 0; tr < state.tankTracks.length; tr++) state.tankTracks[tr].life -= dt;
+          for (var sm = 0; sm < state.tankSmoke.length; sm++) {
+            var s = state.tankSmoke[sm];
+            s.life -= dt;
+            s.x += s.vx * dt;
+            s.y += s.vy * dt;
+            s.r += SR(5) * dt;
+          }
+          state.tankTracks = state.tankTracks.filter(function (t) { return t.life > 0; });
+          state.tankSmoke = state.tankSmoke.filter(function (s) { return s.life > 0; });
+          updateRocketStrikeTimers(dt);
+          updateExplosions(dt);
+
+          for (var mt = 0; mt < state.tanks.length; mt++) {
+            var owner = state.tanks[mt];
+            if (!owner.megaBulletId) continue;
+            var megaAlive = false;
+            for (var bi = 0; bi < state.bullets.length; bi++) {
+              if (!state.bullets[bi].dead && state.bullets[bi].id === owner.megaBulletId) {
+                megaAlive = true;
+                break;
+              }
+            }
+            if (!megaAlive) {
+              owner.megaBulletId = 0;
+              if (owner.weapon === 'mega' && owner.weaponAmmo <= 0) {
+                owner.weapon = 'normal';
+              }
+            }
+          }
+
+          for (var rt = 0; rt < state.tanks.length; rt++) {
+            var rocketOwner = state.tanks[rt];
+            if (!rocketOwner.rocketBulletId) continue;
+            var rocketAlive = false;
+            for (var rbi = 0; rbi < state.bullets.length; rbi++) {
+              if (!state.bullets[rbi].dead && state.bullets[rbi].id === rocketOwner.rocketBulletId) {
+                rocketAlive = true;
+                break;
+              }
+            }
+            if (!rocketAlive) {
+              rocketOwner.rocketBulletId = 0;
+              if (rocketOwner.weapon === 'rocket' && rocketOwner.weaponAmmo <= 0) {
+                rocketOwner.weapon = 'normal';
+              }
+            }
+          }
+
+          if (state.eventName !== 'vortex' || state.eventTimeLeft <= 0) {
+            for (var p = state.pickups.length - 1; p >= 0; p--) {
+              var pickup = state.pickups[p];
+              var collectors = [];
+              for (var pt = 0; pt < state.tanks.length; pt++) {
+                var tank = state.tanks[pt];
+                if (!tank.alive) continue;
+                if (tank.weapon !== 'normal' && tank.weaponAmmo > 0) continue;
+                if (tank.weapon === 'mega' && tank.megaBulletId) continue;
+                if (hypot2(tank.x - pickup.x, tank.y - pickup.y) <= tank.radius + pickup.radius) {
+                  collectors.push(tank);
+                }
+              }
+              if (!collectors.length) continue;
+              var winner = collectors[rand(0, collectors.length - 1)];
+              if (collectors.length > 1) {
+                var clashText = 'Спорный ящик: ' + getWeaponName(pickup.type);
+                state.toastText = clashText;
+                state.toastTimer = 1.6;
+                speakText('Спорный бонус');
+              }
+              applyPickup(winner, pickup.type);
+              state.pickups.splice(p, 1);
+              state.pickupTimer = rand(2, 5);
+            }
+          }
+
+          var alive = state.tanks.filter(function (t) { return t.alive; });
+          if (alive.length <= 1) endRound(alive);
+        }
+
+        function drawBackground() {
+          ctx.fillStyle = '#e7edf5';
+          ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+          if (state.eventName === 'flood' && state.eventTimeLeft > 0) {
+            var wave = Math.sin(state.time * 2.2) * 0.5 + 0.5;
+            ctx.fillStyle = 'rgba(70, 140, 190, ' + (0.07 + wave * 0.06).toFixed(3) + ')';
+            ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+          } else if (state.eventName === 'speedRush' && state.eventTimeLeft > 0) {
+            var rush = Math.sin(state.time * 8) * 0.5 + 0.5;
+            ctx.fillStyle = 'rgba(150, 215, 255, ' + (0.04 + rush * 0.05).toFixed(3) + ')';
+            ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+          } else if (state.eventName === 'rapidFire' && state.eventTimeLeft > 0) {
+            var pulse = Math.sin(state.time * 12) * 0.5 + 0.5;
+            ctx.fillStyle = 'rgba(186, 164, 255, ' + (0.03 + pulse * 0.06).toFixed(3) + ')';
+            ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+          } else if (state.eventName === 'ricochet' && state.eventTimeLeft > 0) {
+            var rc = Math.sin(state.time * 16) * 0.5 + 0.5;
+            ctx.fillStyle = 'rgba(210, 255, 180, ' + (0.03 + rc * 0.05).toFixed(3) + ')';
+            ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+          } else if (state.eventName === 'gravity' && state.eventTimeLeft > 0) {
+            var gv = Math.sin(state.time * 5) * 0.5 + 0.5;
+            ctx.fillStyle = 'rgba(150, 170, 255, ' + (0.03 + gv * 0.05).toFixed(3) + ')';
+            ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+          } else if (state.e
